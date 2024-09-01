@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npm run install-missing-dependencies && npm run build && npm run serve",
+    "start": "npm run install-missing-dependencies && concurrently \"npm run build:watch\" \"npm run serve\"",
     "install-missing-dependencies": "npm i",
     "build": "webpack --config webpack.config.js",
+    "build:watch": "webpack --watch --config webpack.config.js",
     "serve": "live-server --cors"
   },
   "keywords": [],
@@ -25,6 +26,7 @@
     "webpack-cli": "^5.1.4"
   },
   "devDependencies": {
-    "@types/jquery": "^3.5.30"
+    "@types/jquery": "^3.5.30",
+    "concurrently": "^8.2.2"
   }
 }
