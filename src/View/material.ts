@@ -5,20 +5,57 @@ export class Material {
     sampler: GPUSampler
     bindGroup: GPUBindGroup;
 
-    async initialize(device: GPUDevice, url: string, bindGroupLayout: GPUBindGroupLayout) {
+    async initialize(device: GPUDevice, name: string, bindGroupLayout: GPUBindGroupLayout) {
 
-        const response: Response = await fetch(url);
-        const blob: Blob = await response.blob();
-        const imageData: ImageBitmap = await createImageBitmap(blob);
+        var mipCount = 0;
+        var width = 0;
+        var height = 0;
 
-        await this.loadImageBitmap(device, imageData);
+        while (true) {
+            const filename: string = "dist/img/" + name + "/" + name + String(mipCount) + ".png";
+            const response: Response = await fetch(filename);
+
+            if (mipCount == 0) {
+                const blob: Blob = await response.blob();
+                const imageData: ImageBitmap = await createImageBitmap(blob);
+                width = imageData.width;
+                height = imageData.height;
+                imageData.close();
+            }
+            
+            if (!response.ok) {
+                break;
+            }
+            mipCount += 1;
+        }
+
+        const textureDescriptor: GPUTextureDescriptor = {
+            size: {
+                width: width,
+                height: height
+            },
+            mipLevelCount: mipCount,
+            format: "rgba8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+        };
+
+        this.texture = device.createTexture(textureDescriptor);
+
+        for (var i = 0; i < mipCount; i += 1) {
+            const filename: string = "dist/img/" + name + "/" + name + String(i) + ".png";
+            const response: Response = await fetch(filename);
+            const blob: Blob = await response.blob();
+            const imageData: ImageBitmap = await createImageBitmap(blob);
+            await this.loadImageBitmap(device, imageData, i);
+            imageData.close();
+        }
 
         const viewDescriptor: GPUTextureViewDescriptor = {
             format: "rgba8unorm",
             dimension: "2d",
             aspect: "all",
             baseMipLevel: 0,
-            mipLevelCount: 1,
+            mipLevelCount: mipCount,
             baseArrayLayer: 0,
             arrayLayerCount: 1
         };
@@ -28,9 +65,9 @@ export class Material {
             addressModeU: "repeat",
             addressModeV: "repeat",
             magFilter: "linear",
-            minFilter: "nearest",
-            mipmapFilter: "nearest",
-            maxAnisotropy: 1
+            minFilter: "linear",
+            mipmapFilter: "linear",
+            maxAnisotropy: 4
         };
         this.sampler = device.createSampler(samplerDescriptor);
 
@@ -50,23 +87,18 @@ export class Material {
         
     }
 
-    async loadImageBitmap(device: GPUDevice, imageData: ImageBitmap) {
-
-        const textureDescriptor: GPUTextureDescriptor = {
-            size: {
-                width: imageData.width,
-                height: imageData.height
-            },
-            format: "rgba8unorm",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-        };
-
-        this.texture = device.createTexture(textureDescriptor);
+    async loadImageBitmap(device: GPUDevice, imageData: ImageBitmap, mipLevel: number) {
 
         device.queue.copyExternalImageToTexture(
             {source: imageData},
-            {texture: this.texture},
-            textureDescriptor.size
+            {
+                texture: this.texture,
+                mipLevel: mipLevel
+            },
+            {   
+                width: imageData.width,
+                height: imageData.height
+            }
         );
     }
 }

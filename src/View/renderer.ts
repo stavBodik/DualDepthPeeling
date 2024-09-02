@@ -4,10 +4,10 @@ import { TriangleMesh } from "./triangle_mesh";
 import { QuadMesh } from "./quad_mesh";
 import { mat4 } from "gl-matrix";
 import { Material } from "./material";
-import { pipeline_types, object_types, RenderData } from "../Model/definitions";
+import { pipeline_types, object_types, RenderData } from "../model/definitions";
 import { ObjMesh } from "./obj_mesh";
 import { CubeMapMaterial } from "./cube_material";
-import { Camera } from "../Model/camera";
+import { Camera } from "../model/camera";
 
 export class Renderer {
 
@@ -234,8 +234,6 @@ export class Renderer {
                 this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
             ]
         });
-
-
         this.pipelines[pipeline_types.SKY] = this.device.createRenderPipeline({
             vertex : {
                 module : this.device.createShaderModule({
@@ -291,8 +289,8 @@ export class Renderer {
             parameterBufferDescriptor
         );
 
-        await this.triangleMaterial.initialize(this.device, "dist/img/chat.jpg", this.materialGroupLayout);
-        await this.quadMaterial.initialize(this.device, "dist/img/floor.jpg", this.materialGroupLayout);
+        await this.triangleMaterial.initialize(this.device, "chat", this.materialGroupLayout);
+        await this.quadMaterial.initialize(this.device, "floor", this.materialGroupLayout);
 
         const urls = [
             "dist/img/sky_back.png",  //x+
@@ -435,7 +433,7 @@ export class Renderer {
         );
         objects_drawn += renderables.object_counts[object_types.TRIANGLE];
 
-        //Quad
+        //Triangles
         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
         renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
         renderpass.draw(

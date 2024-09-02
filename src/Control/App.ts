@@ -1,5 +1,5 @@
 import { Renderer } from "../View/renderer";
-import { Scene } from "../Model/scene";
+import { Scene } from "../model/scene";
 import $ from "jquery";
 
 export class App {
