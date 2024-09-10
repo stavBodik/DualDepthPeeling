@@ -229,11 +229,16 @@ export class Renderer {
             depthStencil: this.depthStencilState,
         });
 
+
+
+
+
         pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
                 this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
             ]
         });
+
         this.pipelines[pipeline_types.SKY] = this.device.createRenderPipeline({
             vertex : {
                 module : this.device.createShaderModule({
@@ -265,8 +270,10 @@ export class Renderer {
     async createAssets() {
         this.triangleMesh = new TriangleMesh(this.device);
         this.quadMesh = new QuadMesh(this.device);
-        this.statueMesh = new ObjMesh();
-        await this.statueMesh.initialize(this.device, "dist/models/statue.obj");
+        //this.statueMesh = new ObjMesh();
+        //await this.statueMesh.initialize(this.device, "dist/models/statue.obj");
+        
+        
         this.triangleMaterial = new Material();
         this.quadMaterial = new Material();
 
@@ -425,15 +432,15 @@ export class Renderer {
         var objects_drawn: number = 0;
 
         //Triangles
-        renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
-        renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
-        renderpass.draw(
-            3, renderables.object_counts[object_types.TRIANGLE], 
-            0, objects_drawn
-        );
-        objects_drawn += renderables.object_counts[object_types.TRIANGLE];
+        // renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
+        // renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
+        // renderpass.draw(
+        //     3, renderables.object_counts[object_types.TRIANGLE], 
+        //     0, objects_drawn
+        // );
+        // objects_drawn += renderables.object_counts[object_types.TRIANGLE];
 
-        //Triangles
+        //Floor
         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
         renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
         renderpass.draw(
@@ -443,13 +450,13 @@ export class Renderer {
         objects_drawn += renderables.object_counts[object_types.QUAD];
 
         //Statue
-        renderpass.setVertexBuffer(0, this.statueMesh.buffer);
-        renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
-        renderpass.draw(
-            this.statueMesh.vertexCount, 1, 
-            0, objects_drawn
-        );
-        objects_drawn += 1;
+        // renderpass.setVertexBuffer(0, this.statueMesh.buffer);
+        // renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
+        // renderpass.draw(
+        //     this.statueMesh.vertexCount, 1, 
+        //     0, objects_drawn
+        // );
+        // objects_drawn += 1;
 
         renderpass.end();
     

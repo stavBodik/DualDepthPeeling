@@ -1,6 +1,6 @@
 import { vec3, mat4 } from "gl-matrix";
 
-export class Quad {
+export class QuadTransformationModel {
 
     position: vec3;
     model: mat4;

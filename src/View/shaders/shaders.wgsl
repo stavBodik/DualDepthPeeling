@@ -9,6 +9,8 @@ struct ObjectData {
 
 @binding(0) @group(0) var<uniform> transformUBO: TransformData;
 @binding(1) @group(0) var<storage, read> objects: ObjectData;
+
+
 @binding(0) @group(1) var myTexture: texture_2d<f32>;
 @binding(1) @group(1) var mySampler: sampler;
 
