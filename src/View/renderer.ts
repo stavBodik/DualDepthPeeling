@@ -1,5 +1,7 @@
 import sky_shader from "./shaders/sky_shader.wgsl";
-import shader from "./shaders/shaders.wgsl";
+import shaders from "./shaders/shaders.wgsl";
+import shaders_depth from "./shaders/shaders_depth.wgsl";
+
 import { TriangleMesh } from "./triangle_mesh";
 import { QuadMesh } from "./quad_mesh";
 import { mat4 } from "gl-matrix";
@@ -21,6 +23,7 @@ export class Renderer {
 
     // Pipeline objects
     uniformBuffer: GPUBuffer;
+    uniformBufferViewProjectionInverse: GPUBuffer;
 
     pipelines: {[pipeline in pipeline_types]: GPURenderPipeline | null};
     frameGroupLayouts: {[pipeline in pipeline_types]: GPUBindGroupLayout | null};
@@ -29,11 +32,16 @@ export class Renderer {
     // Depth Stencil stuff
     depthBuffer : GPUTexture;
     depthBufferView : GPUTextureView;
+
+    depthBufferPeel : GPUTexture;
+    depthBufferPeelView : GPUTextureView;
     
 
-    depthBufferBindingGroupLayout : GPUBindGroupLayout;
-    depthBufferBindingGroup : GPUBindGroup;
+     depthBufferBindingGroupLayout : GPUBindGroupLayout;
+     depthBufferBindingGroup : GPUBindGroup;
 
+
+     depthSampler : GPUSampler;
 
 
 
@@ -56,6 +64,7 @@ export class Renderer {
         this.pipelines = {
             [pipeline_types.SKY]: null,
             [pipeline_types.STANDARD_LESS]: null,
+            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,
         }
     }
 
@@ -96,30 +105,34 @@ export class Renderer {
     async makeDepthBufferResources() {
 
         
-
-        const size: GPUExtent3D = {
-            width: this.canvas.width,
-            height: this.canvas.height,
-            depthOrArrayLayers: 1
-        };
-
-
-
-
-
-
         const depthBufferDescriptor: GPUTextureDescriptor = {
-            size: size,
-            format: "depth24plus-stencil8",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |  GPUTextureUsage.COPY_DST,
         }
-
 
         this.depthBuffer = this.device.createTexture(depthBufferDescriptor);
         this.depthBufferView = this.depthBuffer.createView();
 
 
+        const depthBufferDescriptorSRC: GPUTextureDescriptor = {
+            size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
+            format: "depth24plus",
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        }
+
+        this.depthBufferPeel = this.device.createTexture(depthBufferDescriptorSRC);
+        this.depthBufferPeelView = this.depthBufferPeel.createView();
+
+
         
+        this.depthSampler = this.device.createSampler( {
+            minFilter: 'nearest', // Use nearest filtering for depth textures
+            magFilter: 'nearest',
+            addressModeU: 'clamp-to-edge',
+            addressModeV: 'clamp-to-edge',
+        });
+
 
 
     }
@@ -129,7 +142,7 @@ export class Renderer {
         this.frameGroupLayouts = {
             [pipeline_types.SKY]: null,
             [pipeline_types.STANDARD_LESS]: null,
-            
+            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,            
         }
 
         this.frameGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
@@ -184,7 +197,21 @@ export class Renderer {
                 {
                     binding: 0,
                     visibility: GPUShaderStage.FRAGMENT, // for the depth buffer texture
-                    texture: {}
+                    texture: {
+                        sampleType: 'depth',  // Use depth type for depth textures
+                        viewDimension: '2d',
+                        multisampled: false,
+                    },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {} // Default sampler configuration
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: {type: 'uniform'}
                 },
             ]
 
@@ -197,6 +224,7 @@ export class Renderer {
         this.frameBindGroups = {
             [pipeline_types.SKY]: null,
             [pipeline_types.STANDARD_LESS]: null,
+            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,
         }
        
         this.frameBindGroups[pipeline_types.STANDARD_LESS] = this.device.createBindGroup({
@@ -246,6 +274,16 @@ export class Renderer {
                     binding: 0,
                     resource: this.depthBufferView
                 },
+                {
+                    binding: 1,
+                    resource: this.depthSampler
+                },
+                {
+                    binding: 2,
+                    resource: {
+                        buffer: this.uniformBufferViewProjectionInverse
+                    }
+                },
             ]
         });
     }
@@ -253,6 +291,14 @@ export class Renderer {
     async makePipelines() {
         
         var pipelineLayout = this.device.createPipelineLayout({
+            bindGroupLayouts: [
+                this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout, 
+                this.quadMaterial.bindGroupLayout
+            ]
+        });
+        
+
+        var pipelineLayoutDepthBuffer = this.device.createPipelineLayout({
             bindGroupLayouts: [
                 this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout, 
                 this.quadMaterial.bindGroupLayout,
@@ -264,7 +310,7 @@ export class Renderer {
         this.pipelines[pipeline_types.STANDARD_LESS] = this.device.createRenderPipeline({
             vertex : {
                 module : this.device.createShaderModule({
-                    code : shader
+                    code : shaders
                 }),
                 entryPoint : "vs_main",
                 buffers: [this.triangleMesh.bufferLayout,]
@@ -272,7 +318,7 @@ export class Renderer {
     
             fragment : {
                 module : this.device.createShaderModule({
-                    code : shader
+                    code : shaders
                 }),
                 entryPoint : "fs_main",
                 targets : [{
@@ -286,7 +332,7 @@ export class Renderer {
     
             layout: pipelineLayout,
             depthStencil: {
-                format: "depth24plus-stencil8",
+                format: "depth24plus",
                 depthWriteEnabled: true,
                 depthCompare: "less",
             },
@@ -294,6 +340,37 @@ export class Renderer {
         });
 
 
+        this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER] = this.device.createRenderPipeline({
+            vertex : {
+                module : this.device.createShaderModule({
+                    code : shaders_depth
+                }),
+                entryPoint : "vs_main",
+                buffers: [this.triangleMesh.bufferLayout,]
+            },
+    
+            fragment : {
+                module : this.device.createShaderModule({
+                    code : shaders_depth
+                }),
+                entryPoint : "fs_main",
+                targets : [{
+                    format : this.format
+                }]
+            },
+    
+            primitive : {
+                topology : "triangle-list"
+            },
+    
+            layout: pipelineLayoutDepthBuffer,
+            depthStencil: {
+                format: "depth24plus",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
+            
+        });
         
 
         
@@ -331,7 +408,7 @@ export class Renderer {
     
             layout: pipelineLayout,
             depthStencil: {
-                format: "depth24plus-stencil8",
+                format: "depth24plus",
                 depthWriteEnabled: true,
                 depthCompare: "less",
             },
@@ -353,6 +430,11 @@ export class Renderer {
 
         this.uniformBuffer = this.device.createBuffer({
             size: 64 * 2,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+
+        this.uniformBufferViewProjectionInverse = this.device.createBuffer({
+            size: 64,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
@@ -405,8 +487,19 @@ export class Renderer {
             renderables.model_transforms, 0, 
             renderables.model_transforms.length
         );
+
+        const viewProjectionMatrix = mat4.create();
+        mat4.multiply(viewProjectionMatrix,projection, view);
+
+        const inverseMatrix = mat4.create();
+        mat4.invert(inverseMatrix,viewProjectionMatrix); 
+
+
         this.device.queue.writeBuffer(this.uniformBuffer, 0, <ArrayBuffer>view); 
-        this.device.queue.writeBuffer(this.uniformBuffer, 64, <ArrayBuffer>projection); 
+        this.device.queue.writeBuffer(this.uniformBuffer, 64, <ArrayBuffer>projection);
+
+        this.device.queue.writeBuffer(this.uniformBufferViewProjectionInverse, 0, <ArrayBuffer>inverseMatrix); 
+
 
         const dy = Math.tan(Math.PI/8);
         const dx = dy * 800 / 600
@@ -436,7 +529,7 @@ export class Renderer {
     async render(renderables: RenderData, camera: Camera) {
         
          //Early exit tests
-         if (!this.device || !this.pipelines[pipeline_types.STANDARD_LESS] ) {
+         if (!this.device || !this.pipelines[pipeline_types.STANDARD_LESS] || !this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER] ) {
             return;
         }
 
@@ -444,7 +537,7 @@ export class Renderer {
 
 
          //command encoder: records draw commands for submission
-         const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
+         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
          //texture view: image view to the color buffer in this case
          const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
          //renderpass: holds draw commands, allocated from command encoder
@@ -457,24 +550,47 @@ export class Renderer {
                 view: textureView,
                 clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
                 loadOp: "clear",
-                storeOp: "store",
+                storeOp: "discard",
             }],
              depthStencilAttachment: {
                 view: this.depthBufferView,  // Use the depth buffer
                 depthLoadOp: "clear",  
                 depthStoreOp: "store",
             
-                stencilLoadOp: "clear",
-                stencilStoreOp: "store",
-            
                 depthClearValue: 1.0,
-                stencilClearValue: 0, 
             },
          });
 
 
-        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],true);
+        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],false);
 
+
+        renderpass1 = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: textureView,
+                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
+                loadOp: "clear",
+                storeOp: "discard",
+            }],
+             depthStencilAttachment: {
+                view: this.depthBufferPeelView, 
+                depthLoadOp: "clear",  
+                depthStoreOp: "store",
+              
+                depthClearValue: 1.0,
+            },
+         });
+
+
+        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER],true);
+
+
+        commandEncoder.copyTextureToTexture({texture: this.depthBufferPeel}, {texture: this.depthBuffer}, 
+        {
+            width: this.canvas.width,
+            height: this.canvas.height,
+            depthOrArrayLayers: 1,
+        });
 
 
         renderpass1 = commandEncoder.beginRenderPass({
@@ -485,20 +601,16 @@ export class Renderer {
                 storeOp: "store",
             }],
              depthStencilAttachment: {
-                view: this.depthBufferView, 
+                view: this.depthBufferPeelView, 
                 depthLoadOp: "clear",  
-                depthStoreOp: "discard",
-            
-                stencilLoadOp: "clear",
-                stencilStoreOp: "discard",
-            
+                depthStoreOp: "store",
+              
                 depthClearValue: 1.0,
-                stencilClearValue: 0, 
             },
          });
 
 
-        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],true);
+        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER],true);
 
 
         this.device.queue.submit([commandEncoder.finish()]);
@@ -536,10 +648,10 @@ export class Renderer {
         renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.STANDARD_LESS]);
 
 
-        if(isDepthRecording)
-        {
-            renderpass.setBindGroup(2, this.depthBufferBindingGroup);
-        }
+         if(isDepthRecording)
+         {
+             renderpass.setBindGroup(2, this.depthBufferBindingGroup);
+         }
 
 
         renderpass.setVertexBuffer(0, this.quadMesh.buffer);

@@ -10,8 +10,6 @@ export class Material {
 
     uniformBufferSingleInt: GPUBuffer;
 
-    depthBuffer : GPUTexture;
-    depthBufferView : GPUTextureView;
     depthBufferViewOnlyDepth : GPUTextureView;
 
     depthTextureSizeBuffer : GPUBuffer;
@@ -26,19 +24,6 @@ export class Material {
 
         let applyAlpha = new Uint32Array([isTransparent, 0, 0, 0]); 
         device.queue.writeBuffer(this.uniformBufferSingleInt, 0, applyAlpha);
-
-
-
-        this.depthBuffer = device.createTexture({
-            size: [canvasWith,canvasHegiht, 1],  // size of the texture
-            format: 'depth24plus',                   // or 'depth32float'
-            usage: GPUTextureUsage.TEXTURE_BINDING  | GPUTextureUsage.RENDER_ATTACHMENT, // required usage flag
-        });
-        
-        this.depthBufferView = this.depthBuffer.createView({
-            format: 'depth24plus',
-            dimension: '2d',
-        });
 
         
 

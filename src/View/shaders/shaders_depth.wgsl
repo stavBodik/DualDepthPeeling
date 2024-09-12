@@ -3,6 +3,10 @@ struct TransformData {
     projection: mat4x4<f32>,
 };
 
+struct TransformDataInverse {
+    viewprojectioninverse: mat4x4<f32>,
+};
+
 struct ObjectData {
     model: array<mat4x4<f32>>,
 };
@@ -16,6 +20,10 @@ struct ObjectData {
 @binding(2) @group(1)  var<uniform> applyAlpha: u32;
 
 
+
+@binding(0) @group(2) var previousDepthBuffer: texture_depth_2d;
+@binding(1) @group(2)  var previousDepthSampler: sampler;
+@binding(2) @group(2) var<uniform> transformUBOInverse: TransformDataInverse;
 
 
 struct Fragment {
@@ -44,6 +52,18 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
     if(applyAlpha == 1u)
     {
         color.a = 0.5; 
+    }
+
+
+    // Sample the previous depth value from the depth buffer
+    let fragCoordInt = vec2<i32>(i32(fragCoord.xy.x), i32(fragCoord.xy.y));
+    let previousDepth = textureLoad(previousDepthBuffer, fragCoordInt, 0);
+
+
+
+    if (fragCoord.z <= (previousDepth+0.00001)) 
+    {
+        discard;
     }
         
     return color;
