@@ -537,80 +537,47 @@ export class Renderer {
 
 
          //command encoder: records draw commands for submission
-         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
-         //texture view: image view to the color buffer in this case
-         const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
-         //renderpass: holds draw commands, allocated from command encoder
-
-
-
-         // Generate Less
-         let renderpass1: GPURenderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: textureView,
-                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
-                loadOp: "clear",
-                storeOp: "discard",
-            }],
-             depthStencilAttachment: {
-                view: this.depthBufferView,  // Use the depth buffer
-                depthLoadOp: "clear",  
-                depthStoreOp: "store",
-            
-                depthClearValue: 1.0,
-            },
-         });
-
-
-        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],false);
-
-
-        renderpass1 = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: textureView,
-                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
-                loadOp: "clear",
-                storeOp: "discard",
-            }],
-             depthStencilAttachment: {
-                view: this.depthBufferPeelView, 
-                depthLoadOp: "clear",  
-                depthStoreOp: "store",
-              
-                depthClearValue: 1.0,
-            },
-         });
-
-
-        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER],true);
-
-
-        commandEncoder.copyTextureToTexture({texture: this.depthBufferPeel}, {texture: this.depthBuffer}, 
+        let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
+        for(let i=0; i<=2; i++)
         {
-            width: this.canvas.width,
-            height: this.canvas.height,
-            depthOrArrayLayers: 1,
-        });
+            let pipeLine : GPURenderPipeline = i == 0 ? this.pipelines[pipeline_types.STANDARD_LESS] : this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER];
+            let depthBufferResult :GPUTextureView = i == 0 ? this.depthBufferView : this.depthBufferPeelView;
+            let isPeelIteration = i > 0 ;
+
+            let renderpass1 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+                colorAttachments: [{
+                    view: this.context.getCurrentTexture().createView(),
+                    clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
+                    loadOp: "clear",
+                    storeOp: "store",
+                }],
+                depthStencilAttachment: {
+                    view: depthBufferResult, 
+                    depthLoadOp: "clear",  
+                    depthStoreOp: "store",
+                
+                    depthClearValue: 1.0,
+                },
+            });
 
 
-        renderpass1 = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: textureView,
-                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
-                loadOp: "clear",
-                storeOp: "store",
-            }],
-             depthStencilAttachment: {
-                view: this.depthBufferPeelView, 
-                depthLoadOp: "clear",  
-                depthStoreOp: "store",
-              
-                depthClearValue: 1.0,
-            },
-         });
+            await this.render_pass(renderables,camera,renderpass1,pipeLine,isPeelIteration);
 
 
-        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER],true);
+            if(i > 0 )
+            {
+                commandEncoder.copyTextureToTexture({texture: this.depthBufferPeel}, {texture: this.depthBuffer}, 
+                {
+                    width: this.canvas.width,
+                    height: this.canvas.height,
+                    depthOrArrayLayers: 1,
+                });
+            }
+        }
+            
+
+
+        
 
 
         this.device.queue.submit([commandEncoder.finish()]);

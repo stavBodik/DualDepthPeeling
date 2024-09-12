@@ -61,7 +61,7 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
 
 
 
-    if (fragCoord.z <= (previousDepth+0.00001)) 
+    if (fragCoord.z <= (previousDepth+0.000001)) 
     {
         discard;
     }
