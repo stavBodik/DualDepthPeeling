@@ -4,6 +4,7 @@ import { Camera } from "./camera";
 import { vec3,mat4 } from "gl-matrix";
 import { object_types, RenderData } from "./definitions";
 import { Statue } from "./statue";
+import { Deg2Rad } from "./math_stuff";
 
 export class Scene {
 
@@ -14,6 +15,10 @@ export class Scene {
     object_data: Float32Array;
     triangle_count: number;
     quad_count: number;
+    standing_quad_count: number;
+
+
+    StandingQuads: QuadTransformationModel[];
 
     constructor() {
 
@@ -25,6 +30,7 @@ export class Scene {
 
        // this.make_triangles();
         this.CreateFloorTransformationModel();
+        this.CreateStandingQuads();
 
         // this.statue = new Statue(
         //     [0, 0, 0], [0, 0, 0]
@@ -55,13 +61,37 @@ export class Scene {
         }
     }
 
+    CreateStandingQuads() {
+
+        this.floorTransformationModel.push(new QuadTransformationModel([2, 0, 0],[0,Deg2Rad(90),0]));
+        this.floorTransformationModel.push(new QuadTransformationModel([3, 0.5, 0],[0,Deg2Rad(90),0]));
+
+        var blank_matrix = mat4.create();
+        let offset : number = this.object_data.length-1 ;
+
+        for (var j: number = 0; j < 16; j++) {
+            this.object_data[offset+j] = <number>blank_matrix.at(j);
+        }
+
+        offset  = this.object_data.length-1 ;
+        
+        blank_matrix = mat4.create();
+        for (var j: number = 0; j < 16; j++) {
+            this.object_data[offset+j] = <number>blank_matrix.at(j);
+        }
+
+
+        this.standing_quad_count=2;
+
+    }
+
     CreateFloorTransformationModel() {
         var i: number = this.triangle_count;
         for (var x: number = -10; x <= 10; x++) {
             for (var y:number = -10; y <= 10; y++) {
                 this.floorTransformationModel.push(
                     new QuadTransformationModel(
-                        [x, y, 0]
+                        [x, y, 0],[0,0,0]
                     )
                 );
 
@@ -101,6 +131,8 @@ export class Scene {
             }
         );
 
+
+
         //this.statue.update();
         // var model = this.statue.get_model();
         // for (var j: number = 0; j < 16; j++) {
@@ -121,7 +153,8 @@ export class Scene {
             model_transforms: this.object_data,
             object_counts: {
                 [object_types.TRIANGLE]: this.triangle_count,
-                [object_types.QUAD]: this.quad_count,
+                [object_types.FLOOR]: this.quad_count,
+                [object_types.STANDING_QUAD]: this.standing_quad_count,
             }
         }
     }

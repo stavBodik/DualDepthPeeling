@@ -21,16 +21,21 @@ export class Renderer {
 
     // Pipeline objects
     uniformBuffer: GPUBuffer;
+
     pipelines: {[pipeline in pipeline_types]: GPURenderPipeline | null};
     frameGroupLayouts: {[pipeline in pipeline_types]: GPUBindGroupLayout | null};
-    materialGroupLayout: GPUBindGroupLayout;
     frameBindGroups: {[pipeline in pipeline_types]: GPUBindGroup | null};
 
     // Depth Stencil stuff
-    depthStencilState: GPUDepthStencilState;
-    depthStencilBuffer: GPUTexture;
-    depthStencilView: GPUTextureView;
-    depthStencilAttachment: GPURenderPassDepthStencilAttachment;
+    depthBuffer : GPUTexture;
+    depthBufferView : GPUTextureView;
+    
+
+    depthBufferBindingGroupLayout : GPUBindGroupLayout;
+    depthBufferBindingGroup : GPUBindGroup;
+
+
+
 
     // Assets
     triangleMesh: TriangleMesh;
@@ -38,6 +43,9 @@ export class Renderer {
     statueMesh: ObjMesh;
     triangleMaterial: Material;
     quadMaterial: Material;
+    standingQuadMaterial: Material;
+    standingQuadMaterialRed: Material;
+
     objectBuffer: GPUBuffer;
     parameterBuffer: GPUBuffer;
     skyMaterial: CubeMapMaterial;
@@ -47,7 +55,7 @@ export class Renderer {
 
         this.pipelines = {
             [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD]: null,
+            [pipeline_types.STANDARD_LESS]: null,
         }
     }
 
@@ -80,47 +88,39 @@ export class Renderer {
         this.context.configure({
             device: this.device,
             format: this.format,
-            alphaMode: "opaque"
+            alphaMode: "premultiplied"
         });
 
     }
 
     async makeDepthBufferResources() {
 
-        this.depthStencilState = {
-            format: "depth24plus-stencil8",
-            depthWriteEnabled: true,
-            depthCompare: "less-equal",
-        };
+        
 
         const size: GPUExtent3D = {
             width: this.canvas.width,
             height: this.canvas.height,
             depthOrArrayLayers: 1
         };
+
+
+
+
+
+
         const depthBufferDescriptor: GPUTextureDescriptor = {
             size: size,
             format: "depth24plus-stencil8",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         }
-        this.depthStencilBuffer = this.device.createTexture(depthBufferDescriptor);
 
-        const viewDescriptor: GPUTextureViewDescriptor = {
-            format: "depth24plus-stencil8",
-            dimension: "2d",
-            aspect: "all"
-        };
-        this.depthStencilView = this.depthStencilBuffer.createView(viewDescriptor);
+
+        this.depthBuffer = this.device.createTexture(depthBufferDescriptor);
+        this.depthBufferView = this.depthBuffer.createView();
+
+
         
-        this.depthStencilAttachment = {
-            view: this.depthStencilView,
-            depthClearValue: 1.0,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
 
-            stencilLoadOp: "clear",
-            stencilStoreOp: "discard"
-        };
 
     }
 
@@ -128,8 +128,10 @@ export class Renderer {
 
         this.frameGroupLayouts = {
             [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD]: null,
+            [pipeline_types.STANDARD_LESS]: null,
+            
         }
+
         this.frameGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
             entries: [
                 {
@@ -151,17 +153,17 @@ export class Renderer {
                     visibility: GPUShaderStage.FRAGMENT,
                     sampler: {
                     }
-                },
+                }
             ]
 
         });
 
-        this.frameGroupLayouts[pipeline_types.STANDARD] = this.device.createBindGroupLayout({
+        this.frameGroupLayouts[pipeline_types.STANDARD_LESS] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
                     visibility: GPUShaderStage.VERTEX,
-                    buffer: {}
+                    buffer: {type: 'uniform'}
                 },
                 {
                     binding: 1,
@@ -171,38 +173,95 @@ export class Renderer {
                         hasDynamicOffset: false
                     }
                 }
+                
             ]
 
         });
 
-        this.materialGroupLayout = this.device.createBindGroupLayout({
+        
+        this.depthBufferBindingGroupLayout = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
-                    visibility: GPUShaderStage.FRAGMENT,
+                    visibility: GPUShaderStage.FRAGMENT, // for the depth buffer texture
                     texture: {}
                 },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    sampler: {}
-                }
             ]
 
         });
 
     }
 
+    async makeBindGroups() {
+
+        this.frameBindGroups = {
+            [pipeline_types.SKY]: null,
+            [pipeline_types.STANDARD_LESS]: null,
+        }
+       
+        this.frameBindGroups[pipeline_types.STANDARD_LESS] = this.device.createBindGroup({
+            layout: this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: this.uniformBuffer
+                    }
+                },
+                {
+                    binding: 1,
+                    resource: {
+                        buffer: this.objectBuffer,
+                    }
+                }
+                
+            ]
+        });
+
+        this.frameBindGroups[pipeline_types.SKY] = this.device.createBindGroup({
+            layout: this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: this.parameterBuffer,
+                    }
+                },
+                {
+                    binding: 1,
+                    resource: this.skyMaterial.view
+                },
+                {
+                    binding: 2,
+                    resource: this.skyMaterial.sampler
+                }
+            ]
+        });
+
+
+        this.depthBufferBindingGroup = this.device.createBindGroup({
+            layout: this.depthBufferBindingGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.depthBufferView
+                },
+            ]
+        });
+    }
+
     async makePipelines() {
         
         var pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.frameGroupLayouts[pipeline_types.STANDARD] as GPUBindGroupLayout, 
-                this.materialGroupLayout
+                this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout, 
+                this.quadMaterial.bindGroupLayout,
+                this.depthBufferBindingGroupLayout
             ]
         });
-    
-        this.pipelines[pipeline_types.STANDARD] = this.device.createRenderPipeline({
+
+            
+        this.pipelines[pipeline_types.STANDARD_LESS] = this.device.createRenderPipeline({
             vertex : {
                 module : this.device.createShaderModule({
                     code : shader
@@ -226,9 +285,18 @@ export class Renderer {
             },
     
             layout: pipelineLayout,
-            depthStencil: this.depthStencilState,
+            depthStencil: {
+                format: "depth24plus-stencil8",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
+            
         });
 
+
+        
+
+        
 
 
 
@@ -262,7 +330,11 @@ export class Renderer {
             },
     
             layout: pipelineLayout,
-            depthStencil: this.depthStencilState,
+            depthStencil: {
+                format: "depth24plus-stencil8",
+                depthWriteEnabled: true,
+                depthCompare: "less",
+            },
         });
 
     }
@@ -276,11 +348,15 @@ export class Renderer {
         
         this.triangleMaterial = new Material();
         this.quadMaterial = new Material();
+        this.standingQuadMaterial = new Material();
+        this.standingQuadMaterialRed = new Material();
 
         this.uniformBuffer = this.device.createBuffer({
             size: 64 * 2,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
+
+        
 
         const modelBufferDescriptor: GPUBufferDescriptor = {
             size: 64 * 1024,
@@ -296,8 +372,11 @@ export class Renderer {
             parameterBufferDescriptor
         );
 
-        await this.triangleMaterial.initialize(this.device, "chat", this.materialGroupLayout);
-        await this.quadMaterial.initialize(this.device, "floor", this.materialGroupLayout);
+        await this.triangleMaterial.initialize(this.device, "chat",0,this.canvas.width,this.canvas.height);
+        await this.quadMaterial.initialize(this.device, "floor",0,this.canvas.width,this.canvas.height);
+        await this.standingQuadMaterial.initialize(this.device, "StandingQuad",1,this.canvas.width,this.canvas.height);
+        await this.standingQuadMaterialRed.initialize(this.device, "StandingQuadRed",1,this.canvas.width,this.canvas.height);
+
 
         const urls = [
             "dist/img/sky_back.png",  //x+
@@ -311,50 +390,7 @@ export class Renderer {
         await this.skyMaterial.initialize(this.device, urls);
     }
 
-    async makeBindGroups() {
 
-        this.frameBindGroups = {
-            [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD]: null,
-        }
-        this.frameBindGroups[pipeline_types.STANDARD] = this.device.createBindGroup({
-            layout: this.frameGroupLayouts[pipeline_types.STANDARD] as GPUBindGroupLayout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: this.uniformBuffer
-                    }
-                },
-                {
-                    binding: 1,
-                    resource: {
-                        buffer: this.objectBuffer,
-                    }
-                }
-            ]
-        });
-
-        this.frameBindGroups[pipeline_types.SKY] = this.device.createBindGroup({
-            layout: this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: this.parameterBuffer,
-                    }
-                },
-                {
-                    binding: 1,
-                    resource: this.skyMaterial.view
-                },
-                {
-                    binding: 2,
-                    resource: this.skyMaterial.sampler
-                }
-            ]
-        });
-    }
 
     prepareScene(renderables: RenderData, camera: Camera) {
 
@@ -396,71 +432,165 @@ export class Renderer {
         )
     }
 
-    async render(renderables: RenderData, camera: Camera) {
 
-        //Early exit tests
-        if (!this.device || !this.pipelines[pipeline_types.STANDARD]) {
+    async render(renderables: RenderData, camera: Camera) {
+        
+         //Early exit tests
+         if (!this.device || !this.pipelines[pipeline_types.STANDARD_LESS] ) {
             return;
         }
 
         this.prepareScene(renderables, camera)
-        
-        //command encoder: records draw commands for submission
-        const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
-        //texture view: image view to the color buffer in this case
-        const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
-        //renderpass: holds draw commands, allocated from command encoder
-        const renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+
+
+         //command encoder: records draw commands for submission
+         const commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
+         //texture view: image view to the color buffer in this case
+         const textureView : GPUTextureView = this.context.getCurrentTexture().createView();
+         //renderpass: holds draw commands, allocated from command encoder
+
+
+
+         // Generate Less
+         let renderpass1: GPURenderPassEncoder = commandEncoder.beginRenderPass({
             colorAttachments: [{
                 view: textureView,
                 clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
                 loadOp: "clear",
-                storeOp: "store"
+                storeOp: "store",
             }],
-            depthStencilAttachment: this.depthStencilAttachment,
-        });
+             depthStencilAttachment: {
+                view: this.depthBufferView,  // Use the depth buffer
+                depthLoadOp: "clear",  
+                depthStoreOp: "store",
+            
+                stencilLoadOp: "clear",
+                stencilStoreOp: "store",
+            
+                depthClearValue: 1.0,
+                stencilClearValue: 0, 
+            },
+         });
 
-        renderpass.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
-        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
 
-        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
-        renderpass.draw(6, 1, 0, 0);
-        
-        renderpass.setPipeline(this.pipelines[pipeline_types.STANDARD] as GPURenderPipeline);
-        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.STANDARD]);
+        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],true);
+
+
+
+        renderpass1 = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: textureView,
+                clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
+                loadOp: "clear",
+                storeOp: "store",
+            }],
+             depthStencilAttachment: {
+                view: this.depthBufferView, 
+                depthLoadOp: "clear",  
+                depthStoreOp: "discard",
+            
+                stencilLoadOp: "clear",
+                stencilStoreOp: "discard",
+            
+                depthClearValue: 1.0,
+                stencilClearValue: 0, 
+            },
+         });
+
+
+        await this.render_pass(renderables,camera,renderpass1,this.pipelines[pipeline_types.STANDARD_LESS],true);
+
+
+        this.device.queue.submit([commandEncoder.finish()]);
+
+    }
+
+
+    async render_pass(renderables: RenderData, camera: Camera,renderpass : GPURenderPassEncoder,pipeLine : GPURenderPipeline,isDepthRecording : boolean) {
+
+       
+       
+       // console.log("render_pass start");
+
+
+
+        //SKY
+        // renderpass.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
+        // renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
+        // renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
+        // renderpass.draw(6, 1, 0, 0);
+
+
+
+
+       //For Quads And Triangles
+
 
         var objects_drawn: number = 0;
 
-        //Triangles
-        // renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
-        // renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
-        // renderpass.draw(
-        //     3, renderables.object_counts[object_types.TRIANGLE], 
-        //     0, objects_drawn
-        // );
-        // objects_drawn += renderables.object_counts[object_types.TRIANGLE];
+        
+        
+        renderpass.setPipeline(pipeLine);
+       
 
-        //Floor
+        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.STANDARD_LESS]);
+
+
+        if(isDepthRecording)
+        {
+            renderpass.setBindGroup(2, this.depthBufferBindingGroup);
+        }
+
+
         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
+
+
+        
+
+       
         renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
+      
+       
         renderpass.draw(
-            6, renderables.object_counts[object_types.QUAD], 
+            6, renderables.object_counts[object_types.FLOOR], 
             0, objects_drawn
         );
-        objects_drawn += renderables.object_counts[object_types.QUAD];
 
-        //Statue
-        // renderpass.setVertexBuffer(0, this.statueMesh.buffer);
-        // renderpass.setBindGroup(1, this.triangleMaterial.bindGroup); 
-        // renderpass.draw(
-        //     this.statueMesh.vertexCount, 1, 
-        //     0, objects_drawn
-        // );
-        // objects_drawn += 1;
+
+        objects_drawn += renderables.object_counts[object_types.FLOOR];
+
+
+         
+        
+
+        renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
+       
+
+        renderpass.draw(
+            6, 1, 
+            0, objects_drawn
+        );
+        objects_drawn += 1;
+
+
+
+
+
+
+        renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
+       
+
+        renderpass.draw(
+            6, 1, 
+            0, objects_drawn
+        );
+        objects_drawn += 1;
+
 
         renderpass.end();
     
-        this.device.queue.submit([commandEncoder.finish()]);
+       // console.log("render_pass end");
+
 
     }
     

@@ -2,12 +2,13 @@ import { mat4 } from "gl-matrix";
 
 export enum object_types {
     TRIANGLE,
-    QUAD
+    FLOOR,
+    STANDING_QUAD
 }
 
 export enum pipeline_types {
     SKY,
-    STANDARD
+    STANDARD_LESS
 }
 
 export interface RenderData {

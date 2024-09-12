@@ -13,6 +13,11 @@ struct ObjectData {
 
 @binding(0) @group(1) var myTexture: texture_2d<f32>;
 @binding(1) @group(1) var mySampler: sampler;
+@binding(2) @group(1)  var<uniform> applyAlpha: u32;
+
+
+
+@binding(0) @group(2) var previousDepthBuffer: texture_2d<f32>; 
 
 struct Fragment {
     @builtin(position) Position : vec4<f32>,
@@ -33,6 +38,22 @@ fn vs_main(
 }
 
 @fragment
-fn fs_main(@location(0) TexCoord : vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(myTexture, mySampler, TexCoord);
+fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<f32>) -> @location(0) vec4<f32> {
+   
+    var color = textureSample(myTexture, mySampler, TexCoord);
+    
+    if(applyAlpha == 1u)
+    {
+        color.a = 0.5; 
+    }
+
+    // Sample the previous depth value from the depth buffer
+    let fragCoordInt = vec2<i32>(i32(fragCoord.xy.x), i32(fragCoord.xy.y));
+    let previousDepth = textureLoad(previousDepthBuffer, fragCoordInt, 0).r;
+
+    if fragCoord.z <= previousDepth {
+        discard;
+    }
+        
+    return color;
 }
