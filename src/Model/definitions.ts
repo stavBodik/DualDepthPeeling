@@ -8,8 +8,7 @@ export enum object_types {
 
 export enum pipeline_types {
     SKY,
-    STANDARD_LESS,
-    STANDARD_LESS_DEPTH_BUFFER
+    BASE_PIPELINE
 }
 
 export interface RenderData {

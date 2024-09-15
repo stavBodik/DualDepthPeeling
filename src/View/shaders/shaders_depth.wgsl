@@ -3,10 +3,6 @@ struct TransformData {
     projection: mat4x4<f32>,
 };
 
-struct TransformDataInverse {
-    viewprojectioninverse: mat4x4<f32>,
-};
-
 struct ObjectData {
     model: array<mat4x4<f32>>,
 };
@@ -22,8 +18,6 @@ struct ObjectData {
 
 
 @binding(0) @group(2) var previousDepthBuffer: texture_depth_2d;
-@binding(1) @group(2)  var previousDepthSampler: sampler;
-@binding(2) @group(2) var<uniform> transformUBOInverse: TransformDataInverse;
 
 
 struct Fragment {
@@ -66,5 +60,5 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
         discard;
     }
         
-    return color;
+    return vec4(color.rgb * color.a,color.a);
 }

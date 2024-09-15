@@ -1,6 +1,7 @@
 import sky_shader from "./shaders/sky_shader.wgsl";
 import shaders from "./shaders/shaders.wgsl";
 import shaders_depth from "./shaders/shaders_depth.wgsl";
+import screen_shader from "./shaders/screen_shader.wgsl";
 
 import { TriangleMesh } from "./triangle_mesh";
 import { QuadMesh } from "./quad_mesh";
@@ -30,19 +31,28 @@ export class Renderer {
     frameBindGroups: {[pipeline in pipeline_types]: GPUBindGroup | null};
 
     // Depth Stencil stuff
-    depthBuffer : GPUTexture;
-    depthBufferView : GPUTextureView;
+    depthBuffer1 : GPUTexture;
+    depthBufferView1 : GPUTextureView;
 
-    depthBufferPeel : GPUTexture;
-    depthBufferPeelView : GPUTextureView;
+    depthBuffer2 : GPUTexture;
+    depthBufferView2 : GPUTextureView;
     
 
      depthBufferBindingGroupLayout : GPUBindGroupLayout;
-     depthBufferBindingGroup : GPUBindGroup;
+     depthBufferBindingGroup_1 : GPUBindGroup;
+
+     depthBufferBindingGroup_2 : GPUBindGroup;
 
 
      depthSampler : GPUSampler;
+     screenTextureSampler : GPUSampler;
 
+     screen_bind_group_layout: GPUBindGroupLayout;
+     screen_bind_group: GPUBindGroup;
+     screen_pipeline: GPURenderPipeline;
+
+     screen_texture: GPUTexture;
+     screen_texture_view: GPUTextureView;
 
 
     // Assets
@@ -63,8 +73,7 @@ export class Renderer {
 
         this.pipelines = {
             [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD_LESS]: null,
-            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,
+            [pipeline_types.BASE_PIPELINE]: null,
         }
     }
 
@@ -93,7 +102,7 @@ export class Renderer {
         this.device = <GPUDevice> await this.adapter?.requestDevice();
         //context: similar to vulkan instance (or OpenGL context)
         this.context = <GPUCanvasContext> this.canvas.getContext("webgpu");
-        this.format = "bgra8unorm";
+        this.format = "rgba8unorm";
         this.context.configure({
             device: this.device,
             format: this.format,
@@ -108,22 +117,18 @@ export class Renderer {
         const depthBufferDescriptor: GPUTextureDescriptor = {
             size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
             format: "depth24plus",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |  GPUTextureUsage.COPY_DST,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
         }
 
-        this.depthBuffer = this.device.createTexture(depthBufferDescriptor);
-        this.depthBufferView = this.depthBuffer.createView();
+        this.depthBuffer1 = this.device.createTexture(depthBufferDescriptor);
+        this.depthBufferView1 = this.depthBuffer1.createView();
 
 
-        const depthBufferDescriptorSRC: GPUTextureDescriptor = {
-            size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
-            format: "depth24plus",
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-        }
+        this.depthBuffer2 = this.device.createTexture(depthBufferDescriptor);
+        this.depthBufferView2 = this.depthBuffer2.createView();
 
-        this.depthBufferPeel = this.device.createTexture(depthBufferDescriptorSRC);
-        this.depthBufferPeelView = this.depthBufferPeel.createView();
 
+       
 
         
         this.depthSampler = this.device.createSampler( {
@@ -134,6 +139,28 @@ export class Renderer {
         });
 
 
+        const samplerDescriptor: GPUSamplerDescriptor = {
+            addressModeU: "repeat",
+            addressModeV: "repeat",
+            magFilter: "linear",
+            minFilter: "nearest",
+            mipmapFilter: "nearest",
+            maxAnisotropy: 1
+        };
+        this.screenTextureSampler = this.device.createSampler(samplerDescriptor);
+
+
+        this.screen_texture = this.device.createTexture(
+            {
+                size: {
+                    width: this.canvas.width,
+                    height: this.canvas.height,
+                },
+                format: "rgba8unorm",
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+            }
+        );
+        this.screen_texture_view = this.screen_texture.createView();
 
     }
 
@@ -141,8 +168,7 @@ export class Renderer {
 
         this.frameGroupLayouts = {
             [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD_LESS]: null,
-            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,            
+            [pipeline_types.BASE_PIPELINE]: null,          
         }
 
         this.frameGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
@@ -171,7 +197,7 @@ export class Renderer {
 
         });
 
-        this.frameGroupLayouts[pipeline_types.STANDARD_LESS] = this.device.createBindGroupLayout({
+        this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -202,16 +228,26 @@ export class Renderer {
                         viewDimension: '2d',
                         multisampled: false,
                     },
+                }
+            ]
+
+        });
+
+
+
+
+
+        this.screen_bind_group_layout = this.device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {}
                 },
                 {
                     binding: 1,
                     visibility: GPUShaderStage.FRAGMENT,
-                    sampler: {} // Default sampler configuration
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.FRAGMENT,
-                    buffer: {type: 'uniform'}
+                    texture: {}
                 },
             ]
 
@@ -223,12 +259,11 @@ export class Renderer {
 
         this.frameBindGroups = {
             [pipeline_types.SKY]: null,
-            [pipeline_types.STANDARD_LESS]: null,
-            [pipeline_types.STANDARD_LESS_DEPTH_BUFFER]: null,
+            [pipeline_types.BASE_PIPELINE]: null,
         }
        
-        this.frameBindGroups[pipeline_types.STANDARD_LESS] = this.device.createBindGroup({
-            layout: this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout,
+        this.frameBindGroups[pipeline_types.BASE_PIPELINE] = this.device.createBindGroup({
+            layout: this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -267,22 +302,38 @@ export class Renderer {
         });
 
 
-        this.depthBufferBindingGroup = this.device.createBindGroup({
+        this.depthBufferBindingGroup_1 = this.device.createBindGroup({
             layout: this.depthBufferBindingGroupLayout,
             entries: [
                 {
                     binding: 0,
-                    resource: this.depthBufferView
+                    resource: this.depthBufferView1
+                }
+            ]
+        });
+
+
+        this.depthBufferBindingGroup_2 = this.device.createBindGroup({
+            layout: this.depthBufferBindingGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.depthBufferView2
+                }
+            ]
+        });
+
+
+        this.screen_bind_group = this.device.createBindGroup({
+            layout: this.screen_bind_group_layout,
+            entries: [
+                {
+                    binding: 0,
+                    resource:  this.screenTextureSampler
                 },
                 {
                     binding: 1,
-                    resource: this.depthSampler
-                },
-                {
-                    binding: 2,
-                    resource: {
-                        buffer: this.uniformBufferViewProjectionInverse
-                    }
+                    resource: this.screen_texture_view
                 },
             ]
         });
@@ -292,25 +343,21 @@ export class Renderer {
         
         var pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout, 
-                this.quadMaterial.bindGroupLayout
-            ]
-        });
-        
-
-        var pipelineLayoutDepthBuffer = this.device.createPipelineLayout({
-            bindGroupLayouts: [
-                this.frameGroupLayouts[pipeline_types.STANDARD_LESS] as GPUBindGroupLayout, 
+                this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout, 
                 this.quadMaterial.bindGroupLayout,
                 this.depthBufferBindingGroupLayout
             ]
         });
+        
+
+     
 
             
-        this.pipelines[pipeline_types.STANDARD_LESS] = this.device.createRenderPipeline({
+        this.pipelines[pipeline_types.BASE_PIPELINE] = this.device.createRenderPipeline({
+            label:"STANDARD_LESS",
             vertex : {
                 module : this.device.createShaderModule({
-                    code : shaders
+                    code : shaders_depth
                 }),
                 entryPoint : "vs_main",
                 buffers: [this.triangleMesh.bufferLayout,]
@@ -318,7 +365,7 @@ export class Renderer {
     
             fragment : {
                 module : this.device.createShaderModule({
-                    code : shaders
+                    code : shaders_depth
                 }),
                 entryPoint : "fs_main",
                 targets : [{
@@ -340,37 +387,7 @@ export class Renderer {
         });
 
 
-        this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER] = this.device.createRenderPipeline({
-            vertex : {
-                module : this.device.createShaderModule({
-                    code : shaders_depth
-                }),
-                entryPoint : "vs_main",
-                buffers: [this.triangleMesh.bufferLayout,]
-            },
-    
-            fragment : {
-                module : this.device.createShaderModule({
-                    code : shaders_depth
-                }),
-                entryPoint : "fs_main",
-                targets : [{
-                    format : this.format
-                }]
-            },
-    
-            primitive : {
-                topology : "triangle-list"
-            },
-    
-            layout: pipelineLayoutDepthBuffer,
-            depthStencil: {
-                format: "depth24plus",
-                depthWriteEnabled: true,
-                depthCompare: "less",
-            },
-            
-        });
+       
         
 
         
@@ -385,6 +402,7 @@ export class Renderer {
         });
 
         this.pipelines[pipeline_types.SKY] = this.device.createRenderPipeline({
+            label:"Sky",
             vertex : {
                 module : this.device.createShaderModule({
                     code : sky_shader
@@ -412,6 +430,53 @@ export class Renderer {
                 depthWriteEnabled: true,
                 depthCompare: "less",
             },
+        });
+
+
+
+
+
+        const screen_pipeline_layout = this.device.createPipelineLayout({
+            bindGroupLayouts: [this.screen_bind_group_layout]
+        });
+
+        this.screen_pipeline = this.device.createRenderPipeline({
+            layout: screen_pipeline_layout,
+            
+            vertex: {
+                module: this.device.createShaderModule({
+                code: screen_shader,
+            }),
+            entryPoint: 'vert_main',
+            },
+
+            fragment: {
+                module: this.device.createShaderModule({
+                code: screen_shader,
+            }),
+            entryPoint: 'frag_main',
+            targets: [
+                {
+                    format: "rgba8unorm",
+                    blend: {
+                        color: {
+                            srcFactor: 'one-minus-dst-alpha',           
+                            dstFactor: 'one', 
+                            operation: 'add'                 
+                        },
+                        alpha: {
+                            srcFactor: 'one-minus-dst-alpha',                 
+                            dstFactor: 'one',              
+                            operation: 'add'                 
+                        }
+                    }
+                }
+            ]
+            },
+
+            primitive: {
+                topology: "triangle-list"
+            }
         });
 
     }
@@ -529,25 +594,56 @@ export class Renderer {
     async render(renderables: RenderData, camera: Camera) {
         
          //Early exit tests
-         if (!this.device || !this.pipelines[pipeline_types.STANDARD_LESS] || !this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER] ) {
+         if (!this.device || !this.pipelines[pipeline_types.BASE_PIPELINE] ) {
             return;
-        }
+         }
 
-        this.prepareScene(renderables, camera)
+        this.prepareScene(renderables, camera);
 
 
-         //command encoder: records draw commands for submission
+
+          //command encoder: records draw commands for submission
         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
-        for(let i=0; i<=2; i++)
+        
+        let renderpass2 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.screen_texture_view,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: "clear",
+                storeOp: "discard",
+            }],
+            depthStencilAttachment: {
+                view: this.depthBufferView2, 
+                depthLoadOp: "clear",  
+                depthStoreOp: "store",
+            
+                depthClearValue: 0.0,
+            },
+        });
+
+    
+        renderpass2.end();
+
+
+
+
+        const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
+        
+
+        for(let i=0; i<3; i++)
         {
-            let pipeLine : GPURenderPipeline = i == 0 ? this.pipelines[pipeline_types.STANDARD_LESS] : this.pipelines[pipeline_types.STANDARD_LESS_DEPTH_BUFFER];
-            let depthBufferResult :GPUTextureView = i == 0 ? this.depthBufferView : this.depthBufferPeelView;
-            let isPeelIteration = i > 0 ;
+
+
+            let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView1 : this.depthBufferView2;
+ 
+            let depthBufferBindingGroup = (i % 2) === 0 ? this.depthBufferBindingGroup_2 : this.depthBufferBindingGroup_1;
+
+            
 
             let renderpass1 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
                 colorAttachments: [{
-                    view: this.context.getCurrentTexture().createView(),
-                    clearValue: {r: 0.5, g: 0.0, b: 0.25, a: 1.0},
+                    view: this.screen_texture_view,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
                     loadOp: "clear",
                     storeOp: "store",
                 }],
@@ -561,18 +657,25 @@ export class Renderer {
             });
 
 
-            await this.render_pass(renderables,camera,renderpass1,pipeLine,isPeelIteration);
+            await this.render_pass(renderables,renderpass1,depthBufferBindingGroup);
 
 
-            if(i > 0 )
-            {
-                commandEncoder.copyTextureToTexture({texture: this.depthBufferPeel}, {texture: this.depthBuffer}, 
-                {
-                    width: this.canvas.width,
-                    height: this.canvas.height,
-                    depthOrArrayLayers: 1,
-                });
-            }
+
+
+             renderpass1  = commandEncoder.beginRenderPass({
+                colorAttachments: [{
+                    view: finalTextureView,
+                    clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: i === 0 ? "clear" : "load",
+                    storeOp: "store",
+                }]
+            });
+
+
+            renderpass1.setPipeline(this.screen_pipeline);
+            renderpass1.setBindGroup(0, this.screen_bind_group);
+            renderpass1.draw(6, 1, 0, 0);
+            renderpass1.end();
         }
             
 
@@ -585,10 +688,13 @@ export class Renderer {
     }
 
 
-    async render_pass(renderables: RenderData, camera: Camera,renderpass : GPURenderPassEncoder,pipeLine : GPURenderPipeline,isDepthRecording : boolean) {
+    async render_pass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
 
        
-       
+        if (!this.pipelines[pipeline_types.BASE_PIPELINE] ) {
+            return;
+         }
+
        // console.log("render_pass start");
 
 
@@ -609,24 +715,25 @@ export class Renderer {
 
         
         
-        renderpass.setPipeline(pipeLine);
+        renderpass.setPipeline(this.pipelines[pipeline_types.BASE_PIPELINE]);
        
 
-        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.STANDARD_LESS]);
+        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.BASE_PIPELINE]);
 
 
-         if(isDepthRecording)
-         {
-             renderpass.setBindGroup(2, this.depthBufferBindingGroup);
-         }
+         
+        renderpass.setBindGroup(2, depthBufferBindingGroup);
+         
 
-
-        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
 
         
+        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
        
+
+
+        //Floor Draw
         renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
       
        
@@ -641,7 +748,7 @@ export class Renderer {
 
          
         
-
+        //QUAD DRAW
         renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
        
 
