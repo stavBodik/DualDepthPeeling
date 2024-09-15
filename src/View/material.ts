@@ -15,7 +15,7 @@ export class Material {
     depthTextureSizeBuffer : GPUBuffer;
 
 
-    async initialize(device: GPUDevice, name: string,isTransparent : number,canvasWith : number,canvasHegiht : number) {
+    async initialize(device: GPUDevice, name: string,isTransparent : number,canvasWith : number,canvasHegiht : number,mipCount : number) {
 
         this.uniformBufferSingleInt = device.createBuffer({
             size: 16, // Size for a single u32
@@ -36,57 +36,38 @@ export class Material {
         device.queue.writeBuffer(this.depthTextureSizeBuffer, 0, new Float32Array([canvasWith, canvasHegiht]));
         
 
-
-
-
-
-
-        var mipCount = 0;
-        var width = 0;
-        var height = 0;
-
-        
-
-        
-        while (true) {
-            const filename: string = "dist/img/" + name + "/" + name + String(mipCount) + ".png";
-            const response: Response = await fetch(filename);
-
-            if (mipCount == 0) {
-                const blob: Blob = await response.blob();
-                const imageData: ImageBitmap = await createImageBitmap(blob);
-                width = imageData.width;
-                height = imageData.height;
-                imageData.close();
-            }
-            
-            if (!response.ok) {
-                break;
-            }
-            mipCount += 1;
-        }
-        
-
-        const textureDescriptor: GPUTextureDescriptor = {
-            size: {
-                width: width,
-                height: height
-            },
-            mipLevelCount: mipCount,
-            format: "rgba8unorm",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
-        };
-
-        this.texture = device.createTexture(textureDescriptor);
-
         for (var i = 0; i < mipCount; i += 1) {
             const filename: string = "dist/img/" + name + "/" + name + String(i) + ".png";
             const response: Response = await fetch(filename);
             const blob: Blob = await response.blob();
             const imageData: ImageBitmap = await createImageBitmap(blob);
-            await this.loadImageBitmap(device, imageData, i);
+            
+            if(i === 0)
+            {
+                const textureDescriptor: GPUTextureDescriptor = {
+                    size: {
+                        width: imageData.width,
+                        height: imageData.height
+                    },
+                    mipLevelCount: mipCount,
+                    format: "rgba8unorm",
+                    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+                };
+        
+                this.texture = device.createTexture(textureDescriptor);
+
+                
+            }
+
+            await this.loadImageBitmapToGPUDevice(device, imageData, i);
             imageData.close();
         }
+
+
+
+      
+
+
 
         const viewDescriptor: GPUTextureViewDescriptor = {
             format: "rgba8unorm",
@@ -154,7 +135,7 @@ export class Material {
     }
 
 
-    async loadImageBitmap(device: GPUDevice, imageData: ImageBitmap, mipLevel: number) {
+    async loadImageBitmapToGPUDevice(device: GPUDevice, imageData: ImageBitmap, mipLevel: number) {
 
         device.queue.copyExternalImageToTexture(
             {source: imageData},

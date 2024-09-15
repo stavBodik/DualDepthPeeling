@@ -1,4 +1,4 @@
-export class CubeMapMaterial {
+export class SkyCubeMaterial {
     
     texture: GPUTexture
     view: GPUTextureView

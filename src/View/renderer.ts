@@ -7,13 +7,15 @@ import { QuadMesh } from "./quad_mesh";
 import { mat4 } from "gl-matrix";
 import { Material } from "./material";
 import { pipeline_types, object_types, RenderData } from "../model/definitions";
-import { CubeMapMaterial } from "./cube_material";
+import { SkyCubeMaterial } from "./sky_cube_material";
 import { Camera } from "../model/camera";
 
 export class Renderer {
 
     canvas: HTMLCanvasElement;
     frametime: number
+
+    gpuTextureColorFormat : GPUTextureFormat;
 
     // Device/Context objects
     adapter: GPUAdapter;
@@ -24,8 +26,8 @@ export class Renderer {
     cameraViewProjectionBuffer: GPUBuffer;
 
     pipelines: {[pipeline in pipeline_types]: GPURenderPipeline | null};
-    frameGroupLayouts: {[pipeline in pipeline_types]: GPUBindGroupLayout | null};
-    frameBindGroups: {[pipeline in pipeline_types]: GPUBindGroup | null};
+    bindingGroupLayouts: {[pipeline in pipeline_types]: GPUBindGroupLayout | null};
+    bindingGroups: {[pipeline in pipeline_types]: GPUBindGroup | null};
 
     // Depth stuff
     depthBuffer1 : GPUTexture;
@@ -41,7 +43,6 @@ export class Renderer {
     depthBufferBindingGroup_2 : GPUBindGroup;
 
 
-    depthSampler : GPUSampler;
     screenTextureSampler : GPUSampler;
 
     screen_bind_group_layout: GPUBindGroupLayout;
@@ -50,6 +51,8 @@ export class Renderer {
 
     screen_texture: GPUTexture;
     screen_texture_view: GPUTextureView;
+
+    gpuDepthTextureColorFormat : GPUTextureFormat;
 
 
     // Assets
@@ -62,7 +65,7 @@ export class Renderer {
 
     objectBuffer: GPUBuffer;
     cameraBuffer: GPUBuffer;
-    skyMaterial: CubeMapMaterial;
+    skyMaterial: SkyCubeMaterial;
 
     constructor(canvas: HTMLCanvasElement){
         this.canvas = canvas;
@@ -77,18 +80,22 @@ export class Renderer {
 
         await this.setupDevice();
 
-        await this.makeBindGroupLayouts();
-
         await this.createAssets();
 
-        await this.makeDepthBufferResources();
-    
-        await this.makePipelines();
+        await this.createDepthBufferResources();
 
-        await this.makeBindGroups();
+        await this.createBindGroupLayouts();
+
+        await this.createBindGroups();
+
+        await this.createPipelines();
+
     }
 
     async setupDevice() {
+
+        this.gpuTextureColorFormat = "rgba8unorm";
+        this.gpuDepthTextureColorFormat = "depth24plus";
 
         //adapter: wrapper around (physical) GPU.
         //Describes features and limits
@@ -98,20 +105,18 @@ export class Renderer {
         this.device = <GPUDevice> await this.adapter?.requestDevice();
         //context: similar to vulkan instance (or OpenGL context)
         this.context = <GPUCanvasContext> this.canvas.getContext("webgpu");
-        this.context.configure({
-            device: this.device,
-            format: "rgba8unorm",
-            alphaMode: "premultiplied"
+
+        this.context.configure({device: this.device,format: this.gpuTextureColorFormat,alphaMode: "premultiplied"
         });
 
     }
 
-    async makeDepthBufferResources() {
+    async createDepthBufferResources() {
 
         
         const depthBufferDescriptor: GPUTextureDescriptor = {
             size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
-            format: "depth24plus",
+            format: this.gpuDepthTextureColorFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
         }
 
@@ -123,26 +128,15 @@ export class Renderer {
         this.depthBufferView2 = this.depthBuffer2.createView();
 
 
-       
 
-        
-        this.depthSampler = this.device.createSampler( {
-            minFilter: 'nearest', // Use nearest filtering for depth textures
-            magFilter: 'nearest',
-            addressModeU: 'clamp-to-edge',
-            addressModeV: 'clamp-to-edge',
-        });
-
-
-        const samplerDescriptor: GPUSamplerDescriptor = {
+        this.screenTextureSampler = this.device.createSampler({
             addressModeU: "repeat",
             addressModeV: "repeat",
             magFilter: "linear",
             minFilter: "nearest",
             mipmapFilter: "nearest",
             maxAnisotropy: 1
-        };
-        this.screenTextureSampler = this.device.createSampler(samplerDescriptor);
+        });
 
 
         this.screen_texture = this.device.createTexture(
@@ -151,7 +145,7 @@ export class Renderer {
                     width: this.canvas.width,
                     height: this.canvas.height,
                 },
-                format: "rgba8unorm",
+                format: this.gpuTextureColorFormat,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
             }
         );
@@ -159,14 +153,14 @@ export class Renderer {
 
     }
 
-    async makeBindGroupLayouts() {
+    async createBindGroupLayouts() {
 
-        this.frameGroupLayouts = {
+        this.bindingGroupLayouts = {
             [pipeline_types.SKY]: null,
             [pipeline_types.BASE_PIPELINE]: null,          
         }
 
-        this.frameGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -192,7 +186,7 @@ export class Renderer {
 
         });
 
-        this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[pipeline_types.BASE_PIPELINE] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -248,17 +242,19 @@ export class Renderer {
 
         });
 
+
     }
 
-    async makeBindGroups() {
+    async createBindGroups() {
 
-        this.frameBindGroups = {
+
+        this.bindingGroups = {
             [pipeline_types.SKY]: null,
             [pipeline_types.BASE_PIPELINE]: null,
         }
        
-        this.frameBindGroups[pipeline_types.BASE_PIPELINE] = this.device.createBindGroup({
-            layout: this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout,
+        this.bindingGroups[pipeline_types.BASE_PIPELINE] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -276,8 +272,8 @@ export class Renderer {
             ]
         });
 
-        this.frameBindGroups[pipeline_types.SKY] = this.device.createBindGroup({
-            layout: this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
+        this.bindingGroups[pipeline_types.SKY] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -334,11 +330,11 @@ export class Renderer {
         });
     }
 
-    async makePipelines() {
+    async createPipelines() {
         
         var pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.frameGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout, 
+                this.bindingGroupLayouts[pipeline_types.BASE_PIPELINE] as GPUBindGroupLayout, 
                 this.quadMaterial.bindGroupLayout,
                 this.depthBufferBindingGroupLayout
             ]
@@ -364,7 +360,7 @@ export class Renderer {
                 }),
                 entryPoint : "fs_main",
                 targets : [{
-                    format : "rgba8unorm"
+                    format : this.gpuTextureColorFormat
                 }]
             },
     
@@ -374,7 +370,7 @@ export class Renderer {
     
             layout: pipelineLayout,
             depthStencil: {
-                format: "depth24plus",
+                format: this.gpuDepthTextureColorFormat,
                 depthWriteEnabled: true,
                 depthCompare: "less",
             },
@@ -392,7 +388,7 @@ export class Renderer {
 
         pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.frameGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
+                this.bindingGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
             ]
         });
 
@@ -412,7 +408,7 @@ export class Renderer {
                 entryPoint : "sky_frag_main",
                 targets: [
                     {
-                        format: "rgba8unorm",
+                        format: this.gpuTextureColorFormat,
                         blend: {
                             color: {
                                 srcFactor: 'one-minus-dst-alpha',           
@@ -435,7 +431,7 @@ export class Renderer {
     
             layout: pipelineLayout,
             depthStencil: {
-                format: "depth24plus",
+                format: this.gpuDepthTextureColorFormat,
                 depthWriteEnabled: true,
                 depthCompare: "equal",
             },
@@ -466,7 +462,7 @@ export class Renderer {
             entryPoint: 'frag_main',
             targets: [
                 {
-                    format: "rgba8unorm",
+                    format: this.gpuTextureColorFormat,
                     blend: {
                         color: {
                             srcFactor: 'one-minus-dst-alpha',           
@@ -521,9 +517,9 @@ export class Renderer {
             cameraBufferDescriptor
         );
 
-        await this.quadMaterial.initialize(this.device, "floor",0,this.canvas.width,this.canvas.height);
-        await this.standingQuadMaterial.initialize(this.device, "StandingQuad",1,this.canvas.width,this.canvas.height);
-        await this.standingQuadMaterialRed.initialize(this.device, "StandingQuadRed",1,this.canvas.width,this.canvas.height);
+        await this.quadMaterial.initialize(this.device, "floor",0,this.canvas.width,this.canvas.height,6);
+        await this.standingQuadMaterial.initialize(this.device, "StandingQuad",1,this.canvas.width,this.canvas.height,1);
+        await this.standingQuadMaterialRed.initialize(this.device, "StandingQuadRed",1,this.canvas.width,this.canvas.height,1);
 
 
         const urls = [
@@ -534,7 +530,7 @@ export class Renderer {
             "dist/img/sky_top.png", //z+
             "dist/img/sky_bottom.png",    //z-
         ]
-        this.skyMaterial = new CubeMapMaterial();
+        this.skyMaterial = new SkyCubeMaterial();
         await this.skyMaterial.initialize(this.device, urls);
     }
 
@@ -700,7 +696,7 @@ export class Renderer {
 
          //SKY Draw
         renderpass2.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
-        renderpass2.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
+        renderpass2.setBindGroup(0, this.bindingGroups[pipeline_types.SKY]);
         renderpass2.setBindGroup(1, this.quadMaterial.bindGroup); 
         renderpass2.draw(6, 1, 0, 0);
 
@@ -715,7 +711,7 @@ export class Renderer {
         renderpass.setPipeline(this.pipelines[pipeline_types.BASE_PIPELINE] as GPURenderPipeline);
        
 
-        renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.BASE_PIPELINE]);
+        renderpass.setBindGroup(0, this.bindingGroups[pipeline_types.BASE_PIPELINE]);
 
 
          
@@ -748,11 +744,6 @@ export class Renderer {
             0, objects_drawn
         );
         objects_drawn += renderables.object_counts[object_types.TRIANGLE]/2;
-
-        console.log(renderables.object_counts[object_types.TRIANGLE]/2);
-
-
-
 
 
 
