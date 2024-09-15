@@ -13,6 +13,7 @@ import { Camera } from "../model/camera";
 export class Renderer {
 
     canvas: HTMLCanvasElement;
+    frametime: number
 
     // Device/Context objects
     adapter: GPUAdapter;
@@ -491,7 +492,7 @@ export class Renderer {
 
     async createAssets() {
         this.quadMesh = new QuadMesh(this.device);        
-        this.triangleMesh = new QuadMesh(this.device);        
+        this.triangleMesh = new TriangleMesh(this.device);        
 
         this.quadMaterial = new Material();
         this.standingQuadMaterial = new Material();
@@ -590,6 +591,9 @@ export class Renderer {
          if (!this.device || !this.pipelines[pipeline_types.BASE_PIPELINE] ) {
             return;
          }
+        
+         let start: number = performance.now();
+
 
         this.prepareScene(renderables, camera);
 
@@ -659,6 +663,17 @@ export class Renderer {
 
         
 
+        this.device.queue.onSubmittedWorkDone().then(
+            () => {
+                let end: number = performance.now();
+                this.frametime = end - start;
+                let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
+                if (performanceLabel) {
+                    performanceLabel.innerText = this.frametime.toString();
+                }
+            }
+        );
+
         this.device.queue.submit([commandEncoder.finish()]);
 
     }
@@ -695,17 +710,7 @@ export class Renderer {
     async drawPeeledRenderPass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
 
        
-
-
-
-        
-
-
-
-       //For Quads And Triangles
-        var objects_drawn: number = 0;
-
-        
+       
         
         renderpass.setPipeline(this.pipelines[pipeline_types.BASE_PIPELINE] as GPURenderPipeline);
        
@@ -718,7 +723,8 @@ export class Renderer {
          
 
 
-
+        var objects_drawn: number = 0;
+        
         //TRINALGE DRAW
         renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
 
@@ -727,36 +733,42 @@ export class Renderer {
        
 
         renderpass.draw(
-            3, renderables.object_counts[object_types.TRIANGLE], 
+            3, renderables.object_counts[object_types.TRIANGLE]/2, 
             0, objects_drawn
         );
-        objects_drawn += renderables.object_counts[object_types.TRIANGLE];
+        objects_drawn += renderables.object_counts[object_types.TRIANGLE]/2;
+
+
+
+
+        renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
+       
+        renderpass.draw(
+            3, renderables.object_counts[object_types.TRIANGLE]/2, 
+            0, objects_drawn
+        );
+        objects_drawn += renderables.object_counts[object_types.TRIANGLE]/2;
+
+        console.log(renderables.object_counts[object_types.TRIANGLE]/2);
 
 
 
 
 
 
+        //Floor Draw
+        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
-
-        //  //Floor Draw
-        // renderpass.setVertexBuffer(0, this.quadMesh.buffer);
-
-        // renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
+        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
       
        
-        // renderpass.draw(
-        //     6, renderables.object_counts[object_types.FLOOR], 
-        //     0, objects_drawn
-        // );
+        renderpass.draw(
+            6, renderables.object_counts[object_types.FLOOR], 
+            0, objects_drawn
+        );
 
 
-        // objects_drawn += renderables.object_counts[object_types.FLOOR];
-
-
-         
-        
-       
+        objects_drawn += renderables.object_counts[object_types.FLOOR];
 
 
         renderpass.end();

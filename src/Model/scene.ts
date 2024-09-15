@@ -37,22 +37,34 @@ export class Scene {
     }
 
     make_triangles() {
-        var i: number = 0;
-        for (var y:number = -5; y <= 5; y++) {
-            this.triangles.push(
-                new Triangle(
-                    [2, y, 0],
-                    0
-                )
-            );
 
+        var i: number = 0;
+        for (var y:number = -5; y < 5; y++) {
+            
+            this.triangles.push(new Triangle([2, y, 0],[1,1,2],0));
             var blank_matrix = mat4.create();
             for (var j: number = 0; j < 16; j++) {
                 this.object_data[16 * i + j] = <number>blank_matrix.at(j);
             }
+
             i++;
             this.triangle_count++;
         }
+
+
+        for (var y:number = -5; y < 5; y++) {
+            
+            this.triangles.push(new Triangle([2, y, 0],[2,1,1],90));
+            var blank_matrix = mat4.create();
+            for (var j: number = 0; j < 16; j++) {
+                this.object_data[16 * i + j] = <number>blank_matrix.at(j);
+            }
+
+            i++;
+            this.triangle_count++;
+        }
+
+        
     }
 
     
