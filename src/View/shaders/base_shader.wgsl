@@ -48,6 +48,8 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
         color.a = 0.5; 
     }
 
+    
+
 
     // Sample the previous depth value from the depth buffer
     let fragCoordInt = vec2<i32>(i32(fragCoord.xy.x), i32(fragCoord.xy.y));

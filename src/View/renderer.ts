@@ -1,6 +1,5 @@
 import sky_shader from "./shaders/sky_shader.wgsl";
-import shaders from "./shaders/shaders.wgsl";
-import shaders_depth from "./shaders/shaders_depth.wgsl";
+import base_shader from "./shaders/base_shader.wgsl";
 import screen_shader from "./shaders/screen_shader.wgsl";
 
 import { TriangleMesh } from "./triangle_mesh";
@@ -20,7 +19,6 @@ export class Renderer {
     adapter: GPUAdapter;
     device: GPUDevice;
     context: GPUCanvasContext;
-    format : GPUTextureFormat;
 
     // Pipeline objects
     uniformBuffer: GPUBuffer;
@@ -102,10 +100,9 @@ export class Renderer {
         this.device = <GPUDevice> await this.adapter?.requestDevice();
         //context: similar to vulkan instance (or OpenGL context)
         this.context = <GPUCanvasContext> this.canvas.getContext("webgpu");
-        this.format = "rgba8unorm";
         this.context.configure({
             device: this.device,
-            format: this.format,
+            format: "rgba8unorm",
             alphaMode: "premultiplied"
         });
 
@@ -357,7 +354,7 @@ export class Renderer {
             label:"STANDARD_LESS",
             vertex : {
                 module : this.device.createShaderModule({
-                    code : shaders_depth
+                    code : base_shader
                 }),
                 entryPoint : "vs_main",
                 buffers: [this.triangleMesh.bufferLayout,]
@@ -365,11 +362,11 @@ export class Renderer {
     
             fragment : {
                 module : this.device.createShaderModule({
-                    code : shaders_depth
+                    code : base_shader
                 }),
                 entryPoint : "fs_main",
                 targets : [{
-                    format : this.format
+                    format : "rgba8unorm"
                 }]
             },
     
@@ -416,7 +413,7 @@ export class Renderer {
                 }),
                 entryPoint : "sky_frag_main",
                 targets : [{
-                    format : this.format
+                    format : "rgba8unorm"
                 }]
             },
     
@@ -428,7 +425,7 @@ export class Renderer {
             depthStencil: {
                 format: "depth24plus",
                 depthWriteEnabled: true,
-                depthCompare: "less",
+                depthCompare: "equal",
             },
         });
 
@@ -601,34 +598,20 @@ export class Renderer {
         this.prepareScene(renderables, camera);
 
 
-
-          //command encoder: records draw commands for submission
-        let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
-        
-        let renderpass2 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: this.screen_texture_view,
-                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: "clear",
-                storeOp: "discard",
-            }],
-            depthStencilAttachment: {
-                view: this.depthBufferView2, 
-                depthLoadOp: "clear",  
-                depthStoreOp: "store",
-            
-                depthClearValue: 0.0,
-            },
-        });
-
-    
-        renderpass2.end();
-
-
-
-
         const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
         
+        let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
+
+
+        
+
+
+
+       
+
+
+
+        this.clearViewDepthValues(this.depthBufferView2,commandEncoder);
 
         for(let i=0; i<3; i++)
         {
@@ -657,7 +640,7 @@ export class Renderer {
             });
 
 
-            await this.render_pass(renderables,renderpass1,depthBufferBindingGroup);
+            await this.drawRenderPass(renderables,renderpass1,depthBufferBindingGroup);
 
 
 
@@ -679,6 +662,30 @@ export class Renderer {
         }
             
 
+        // let renderpass2 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+        //     colorAttachments: [{
+        //         view: finalTextureView,
+        //         clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+        //         loadOp: "load",
+        //         storeOp: "store",
+        //     }],
+        //     depthStencilAttachment: {
+        //         view: this.depthBufferView2, 
+        //         depthLoadOp: "clear",  
+        //         depthStoreOp: "store",
+            
+        //         depthClearValue: 1.0,
+        //     },
+            
+        // });
+
+        //  //SKY Draw
+        // renderpass2.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
+        // renderpass2.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
+        // renderpass2.setBindGroup(1, this.quadMaterial.bindGroup); 
+        // renderpass2.draw(6, 1, 0, 0);
+
+        // renderpass2.end();
 
         
 
@@ -688,34 +695,22 @@ export class Renderer {
     }
 
 
-    async render_pass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
+    async drawRenderPass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
 
        
-        if (!this.pipelines[pipeline_types.BASE_PIPELINE] ) {
-            return;
-         }
-
-       // console.log("render_pass start");
 
 
 
-        //SKY
-        // renderpass.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
-        // renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
-        // renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
-        // renderpass.draw(6, 1, 0, 0);
-
+        
 
 
 
        //For Quads And Triangles
-
-
         var objects_drawn: number = 0;
 
         
         
-        renderpass.setPipeline(this.pipelines[pipeline_types.BASE_PIPELINE]);
+        renderpass.setPipeline(this.pipelines[pipeline_types.BASE_PIPELINE] as GPURenderPipeline);
        
 
         renderpass.setBindGroup(0, this.frameBindGroups[pipeline_types.BASE_PIPELINE]);
@@ -775,9 +770,31 @@ export class Renderer {
 
         renderpass.end();
     
-       // console.log("render_pass end");
+
+    }
 
 
+    clearViewDepthValues(textureViewToClear : GPUTextureView, commandEncoder : GPUCommandEncoder)
+    {
+
+        let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.context.getCurrentTexture().createView(),
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: "clear",
+                storeOp: "discard",
+            }],
+            depthStencilAttachment: {
+                view: textureViewToClear, 
+                depthLoadOp: "clear",  
+                depthStoreOp: "store",
+            
+                depthClearValue: 0.0,
+            },
+        });
+
+    
+        renderpass.end();
     }
     
 }
