@@ -412,9 +412,23 @@ export class Renderer {
                     code : sky_shader
                 }),
                 entryPoint : "sky_frag_main",
-                targets : [{
-                    format : "rgba8unorm"
-                }]
+                targets: [
+                    {
+                        format: "rgba8unorm",
+                        blend: {
+                            color: {
+                                srcFactor: 'one-minus-dst-alpha',           
+                                dstFactor: 'one', 
+                                operation: 'add'                 
+                            },
+                            alpha: {
+                                srcFactor: 'one-minus-dst-alpha',                 
+                                dstFactor: 'one',              
+                                operation: 'add'                 
+                            }
+                        }
+                    }
+                ]
             },
     
             primitive : {
@@ -603,26 +617,22 @@ export class Renderer {
         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
 
 
-        
+        // Clear this.depthBufferView2, we want that the compare function in the first peel loop will pass using LESS 
+        // all closest fragments to camera.
+        await this.clearViewDepthValues(this.depthBufferView2,commandEncoder);
 
 
+        //Depth Peeling Loop
+        const numberOfPeelPassed : number = 3;
 
-       
-
-
-
-        this.clearViewDepthValues(this.depthBufferView2,commandEncoder);
-
-        for(let i=0; i<3; i++)
+        for(let i=0; i<numberOfPeelPassed; i++)
         {
-
 
             let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView1 : this.depthBufferView2;
  
             let depthBufferBindingGroup = (i % 2) === 0 ? this.depthBufferBindingGroup_2 : this.depthBufferBindingGroup_1;
 
             
-
             let renderpass1 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
                 colorAttachments: [{
                     view: this.screen_texture_view,
@@ -640,11 +650,11 @@ export class Renderer {
             });
 
 
-            await this.drawRenderPass(renderables,renderpass1,depthBufferBindingGroup);
+            await this.drawPeeledRenderPass(renderables,renderpass1,depthBufferBindingGroup);
 
 
 
-
+             //accmulate layers with blending between them.
              renderpass1  = commandEncoder.beginRenderPass({
                 colorAttachments: [{
                     view: finalTextureView,
@@ -662,40 +672,45 @@ export class Renderer {
         }
             
 
-        // let renderpass2 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-        //     colorAttachments: [{
-        //         view: finalTextureView,
-        //         clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-        //         loadOp: "load",
-        //         storeOp: "store",
-        //     }],
-        //     depthStencilAttachment: {
-        //         view: this.depthBufferView2, 
-        //         depthLoadOp: "clear",  
-        //         depthStoreOp: "store",
-            
-        //         depthClearValue: 1.0,
-        //     },
-            
-        // });
-
-        //  //SKY Draw
-        // renderpass2.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
-        // renderpass2.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
-        // renderpass2.setBindGroup(1, this.quadMaterial.bindGroup); 
-        // renderpass2.draw(6, 1, 0, 0);
-
-        // renderpass2.end();
+        //Sky cube is the last layer in finalTextureView layers
+        await this.drawSky(finalTextureView,commandEncoder);
 
         
-
 
         this.device.queue.submit([commandEncoder.finish()]);
 
     }
 
 
-    async drawRenderPass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
+    async drawSky(textureView :GPUTextureView,commandEncoder : GPUCommandEncoder)
+    {
+        let renderpass2 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: textureView,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: "load",
+                storeOp: "store",
+            }],
+            depthStencilAttachment: {
+                view: this.depthBufferView2, 
+                depthLoadOp: "clear",  
+                depthStoreOp: "store",
+            
+                depthClearValue: 1.0,
+            },
+            
+        });
+
+         //SKY Draw
+        renderpass2.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
+        renderpass2.setBindGroup(0, this.frameBindGroups[pipeline_types.SKY]);
+        renderpass2.setBindGroup(1, this.quadMaterial.bindGroup); 
+        renderpass2.draw(6, 1, 0, 0);
+
+        renderpass2.end();
+    }
+    
+    async drawPeeledRenderPass(renderables: RenderData,renderpass : GPURenderPassEncoder,depthBufferBindingGroup: GPUBindGroup ) {
 
        
 
@@ -774,7 +789,7 @@ export class Renderer {
     }
 
 
-    clearViewDepthValues(textureViewToClear : GPUTextureView, commandEncoder : GPUCommandEncoder)
+    async clearViewDepthValues(textureViewToClear : GPUTextureView, commandEncoder : GPUCommandEncoder)
     {
 
         let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
