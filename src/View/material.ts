@@ -65,10 +65,6 @@ export class Material {
 
 
 
-      
-
-
-
         const viewDescriptor: GPUTextureViewDescriptor = {
             format: "rgba8unorm",
             dimension: "2d",

@@ -1,14 +1,13 @@
-import { Triangle } from "./triangle";
+import { TriangleTransformationModel } from "./TriangleTransformationModel";
 import { QuadTransformationModel } from "./QuadTransformationModel";
 import { Camera } from "./camera";
 import { vec3,mat4 } from "gl-matrix";
 import { object_types, RenderData } from "./definitions";
-import { Statue } from "./statue";
 import { Deg2Rad } from "./math_stuff";
 
 export class Scene {
 
-    triangles: Triangle[];
+    triangles: TriangleTransformationModel[];
     floorTransformationModel: QuadTransformationModel[];
     player: Camera;
     object_data: Float32Array;
@@ -41,7 +40,7 @@ export class Scene {
         var i: number = 0;
         for (var y:number = -5; y < 5; y++) {
             
-            this.triangles.push(new Triangle([2, y, 0],[1,1,2],0));
+            this.triangles.push(new TriangleTransformationModel([2, y, 0],[1,1,2],0));
             var blank_matrix = mat4.create();
             for (var j: number = 0; j < 16; j++) {
                 this.object_data[16 * i + j] = <number>blank_matrix.at(j);
@@ -54,7 +53,7 @@ export class Scene {
 
         for (var y:number = -5; y < 5; y++) {
             
-            this.triangles.push(new Triangle([2, y, 0],[2,1,1],90));
+            this.triangles.push(new TriangleTransformationModel([2, y, 0],[2,1,1],90));
             var blank_matrix = mat4.create();
             for (var j: number = 0; j < 16; j++) {
                 this.object_data[16 * i + j] = <number>blank_matrix.at(j);

@@ -1,7 +1,7 @@
 import { vec3, mat4 } from "gl-matrix";
 import { Deg2Rad } from "./math_stuff";
 
-export class Triangle {
+export class TriangleTransformationModel {
 
     position: vec3;
     eulers: vec3;
