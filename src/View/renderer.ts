@@ -7,7 +7,6 @@ import { QuadMesh } from "./quad_mesh";
 import { mat4 } from "gl-matrix";
 import { Material } from "./material";
 import { pipeline_types, object_types, RenderData } from "../model/definitions";
-import { ObjMesh } from "./obj_mesh";
 import { CubeMapMaterial } from "./cube_material";
 import { Camera } from "../model/camera";
 
@@ -21,14 +20,13 @@ export class Renderer {
     context: GPUCanvasContext;
 
     // Pipeline objects
-    uniformBuffer: GPUBuffer;
-    uniformBufferViewProjectionInverse: GPUBuffer;
+    cameraViewProjectionBuffer: GPUBuffer;
 
     pipelines: {[pipeline in pipeline_types]: GPURenderPipeline | null};
     frameGroupLayouts: {[pipeline in pipeline_types]: GPUBindGroupLayout | null};
     frameBindGroups: {[pipeline in pipeline_types]: GPUBindGroup | null};
 
-    // Depth Stencil stuff
+    // Depth stuff
     depthBuffer1 : GPUTexture;
     depthBufferView1 : GPUTextureView;
 
@@ -36,34 +34,31 @@ export class Renderer {
     depthBufferView2 : GPUTextureView;
     
 
-     depthBufferBindingGroupLayout : GPUBindGroupLayout;
-     depthBufferBindingGroup_1 : GPUBindGroup;
+    depthBufferBindingGroupLayout : GPUBindGroupLayout;
+    depthBufferBindingGroup_1 : GPUBindGroup;
 
-     depthBufferBindingGroup_2 : GPUBindGroup;
+    depthBufferBindingGroup_2 : GPUBindGroup;
 
 
-     depthSampler : GPUSampler;
-     screenTextureSampler : GPUSampler;
+    depthSampler : GPUSampler;
+    screenTextureSampler : GPUSampler;
 
-     screen_bind_group_layout: GPUBindGroupLayout;
-     screen_bind_group: GPUBindGroup;
-     screen_pipeline: GPURenderPipeline;
+    screen_bind_group_layout: GPUBindGroupLayout;
+    screen_bind_group: GPUBindGroup;
+    screen_pipeline: GPURenderPipeline;
 
-     screen_texture: GPUTexture;
-     screen_texture_view: GPUTextureView;
+    screen_texture: GPUTexture;
+    screen_texture_view: GPUTextureView;
 
 
     // Assets
-    triangleMesh: TriangleMesh;
     quadMesh: QuadMesh;
-    statueMesh: ObjMesh;
-    triangleMaterial: Material;
     quadMaterial: Material;
     standingQuadMaterial: Material;
     standingQuadMaterialRed: Material;
 
     objectBuffer: GPUBuffer;
-    parameterBuffer: GPUBuffer;
+    cameraBuffer: GPUBuffer;
     skyMaterial: CubeMapMaterial;
 
     constructor(canvas: HTMLCanvasElement){
@@ -265,7 +260,7 @@ export class Renderer {
                 {
                     binding: 0,
                     resource: {
-                        buffer: this.uniformBuffer
+                        buffer: this.cameraViewProjectionBuffer
                     }
                 },
                 {
@@ -284,7 +279,7 @@ export class Renderer {
                 {
                     binding: 0,
                     resource: {
-                        buffer: this.parameterBuffer,
+                        buffer: this.cameraBuffer,
                     }
                 },
                 {
@@ -357,7 +352,7 @@ export class Renderer {
                     code : base_shader
                 }),
                 entryPoint : "vs_main",
-                buffers: [this.triangleMesh.bufferLayout,]
+                buffers: [this.quadMesh.bufferLayout,]
             },
     
             fragment : {
@@ -493,26 +488,18 @@ export class Renderer {
     }
 
     async createAssets() {
-        this.triangleMesh = new TriangleMesh(this.device);
-        this.quadMesh = new QuadMesh(this.device);
-        //this.statueMesh = new ObjMesh();
-        //await this.statueMesh.initialize(this.device, "dist/models/statue.obj");
+        this.quadMesh = new QuadMesh(this.device);        
         
-        
-        this.triangleMaterial = new Material();
         this.quadMaterial = new Material();
         this.standingQuadMaterial = new Material();
         this.standingQuadMaterialRed = new Material();
 
-        this.uniformBuffer = this.device.createBuffer({
+        this.cameraViewProjectionBuffer = this.device.createBuffer({
             size: 64 * 2,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
-        this.uniformBufferViewProjectionInverse = this.device.createBuffer({
-            size: 64,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        });
+        
 
         
 
@@ -522,15 +509,14 @@ export class Renderer {
         };
         this.objectBuffer = this.device.createBuffer(modelBufferDescriptor);
 
-        const parameterBufferDescriptor: GPUBufferDescriptor = {
+        const cameraBufferDescriptor: GPUBufferDescriptor = {
             size: 48,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         };
-        this.parameterBuffer = this.device.createBuffer(
-            parameterBufferDescriptor
+        this.cameraBuffer = this.device.createBuffer(
+            cameraBufferDescriptor
         );
 
-        await this.triangleMaterial.initialize(this.device, "chat",0,this.canvas.width,this.canvas.height);
         await this.quadMaterial.initialize(this.device, "floor",0,this.canvas.width,this.canvas.height);
         await this.standingQuadMaterial.initialize(this.device, "StandingQuad",1,this.canvas.width,this.canvas.height);
         await this.standingQuadMaterialRed.initialize(this.device, "StandingQuadRed",1,this.canvas.width,this.canvas.height);
@@ -564,24 +550,17 @@ export class Renderer {
             renderables.model_transforms.length
         );
 
-        const viewProjectionMatrix = mat4.create();
-        mat4.multiply(viewProjectionMatrix,projection, view);
 
-        const inverseMatrix = mat4.create();
-        mat4.invert(inverseMatrix,viewProjectionMatrix); 
+        this.device.queue.writeBuffer(this.cameraViewProjectionBuffer, 0, <ArrayBuffer>view); 
+        this.device.queue.writeBuffer(this.cameraViewProjectionBuffer, 64, <ArrayBuffer>projection);
 
-
-        this.device.queue.writeBuffer(this.uniformBuffer, 0, <ArrayBuffer>view); 
-        this.device.queue.writeBuffer(this.uniformBuffer, 64, <ArrayBuffer>projection);
-
-        this.device.queue.writeBuffer(this.uniformBufferViewProjectionInverse, 0, <ArrayBuffer>inverseMatrix); 
 
 
         const dy = Math.tan(Math.PI/8);
         const dx = dy * 800 / 600
 
         this.device.queue.writeBuffer(
-            this.parameterBuffer, 0,
+            this.cameraBuffer, 0,
             new Float32Array(
                 [
                     camera.forwards[0],

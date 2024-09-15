@@ -45,6 +45,9 @@ export class Material {
         var width = 0;
         var height = 0;
 
+        
+
+        
         while (true) {
             const filename: string = "dist/img/" + name + "/" + name + String(mipCount) + ".png";
             const response: Response = await fetch(filename);
@@ -62,6 +65,7 @@ export class Material {
             }
             mipCount += 1;
         }
+        
 
         const textureDescriptor: GPUTextureDescriptor = {
             size: {
