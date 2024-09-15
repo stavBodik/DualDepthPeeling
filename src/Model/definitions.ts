@@ -2,8 +2,7 @@ import { mat4 } from "gl-matrix";
 
 export enum object_types {
     TRIANGLE,
-    FLOOR,
-    STANDING_QUAD
+    FLOOR
 }
 
 export enum pipeline_types {

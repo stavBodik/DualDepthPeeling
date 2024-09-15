@@ -53,6 +53,8 @@ export class Renderer {
 
     // Assets
     quadMesh: QuadMesh;
+    triangleMesh: TriangleMesh;
+
     quadMaterial: Material;
     standingQuadMaterial: Material;
     standingQuadMaterialRed: Material;
@@ -489,7 +491,8 @@ export class Renderer {
 
     async createAssets() {
         this.quadMesh = new QuadMesh(this.device);        
-        
+        this.triangleMesh = new QuadMesh(this.device);        
+
         this.quadMaterial = new Material();
         this.standingQuadMaterial = new Material();
         this.standingQuadMaterialRed = new Material();
@@ -716,50 +719,44 @@ export class Renderer {
 
 
 
-        
-        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
+        //TRINALGE DRAW
+        renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
 
        
-
-
-        //Floor Draw
-        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
-      
-       
-        renderpass.draw(
-            6, renderables.object_counts[object_types.FLOOR], 
-            0, objects_drawn
-        );
-
-
-        objects_drawn += renderables.object_counts[object_types.FLOOR];
-
-
-         
-        
-        //QUAD DRAW
         renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
        
 
         renderpass.draw(
-            6, 1, 
+            3, renderables.object_counts[object_types.TRIANGLE], 
             0, objects_drawn
         );
-        objects_drawn += 1;
+        objects_drawn += renderables.object_counts[object_types.TRIANGLE];
 
 
 
 
 
 
-        renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
+
+
+        //  //Floor Draw
+        // renderpass.setVertexBuffer(0, this.quadMesh.buffer);
+
+        // renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
+      
        
+        // renderpass.draw(
+        //     6, renderables.object_counts[object_types.FLOOR], 
+        //     0, objects_drawn
+        // );
 
-        renderpass.draw(
-            6, 1, 
-            0, objects_drawn
-        );
-        objects_drawn += 1;
+
+        // objects_drawn += renderables.object_counts[object_types.FLOOR];
+
+
+         
+        
+       
 
 
         renderpass.end();

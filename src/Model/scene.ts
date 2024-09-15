@@ -10,7 +10,6 @@ export class Scene {
 
     triangles: Triangle[];
     floorTransformationModel: QuadTransformationModel[];
-    statue: Statue;
     player: Camera;
     object_data: Float32Array;
     triangle_count: number;
@@ -28,13 +27,8 @@ export class Scene {
         this.triangle_count = 0;
         this.quad_count = 0;
 
-       // this.make_triangles();
+       this.make_triangles();
         this.CreateFloorTransformationModel();
-        this.CreateStandingQuads();
-
-        // this.statue = new Statue(
-        //     [0, 0, 0], [0, 0, 0]
-        // );
 
         this.player = new Camera(
             [-2, 0, 0.5], 0, 0
@@ -61,29 +55,7 @@ export class Scene {
         }
     }
 
-    CreateStandingQuads() {
-
-        this.floorTransformationModel.push(new QuadTransformationModel([2, 0, 0],[0,Deg2Rad(90),0]));
-        this.floorTransformationModel.push(new QuadTransformationModel([3, 0.5, 0],[0,Deg2Rad(90),0]));
-
-        var blank_matrix = mat4.create();
-        let offset : number = this.object_data.length-1 ;
-
-        for (var j: number = 0; j < 16; j++) {
-            this.object_data[offset+j] = <number>blank_matrix.at(j);
-        }
-
-        offset  = this.object_data.length-1 ;
-        
-        blank_matrix = mat4.create();
-        for (var j: number = 0; j < 16; j++) {
-            this.object_data[offset+j] = <number>blank_matrix.at(j);
-        }
-
-
-        this.standing_quad_count=2;
-
-    }
+    
 
     CreateFloorTransformationModel() {
         var i: number = this.triangle_count;
@@ -109,16 +81,16 @@ export class Scene {
 
         var i: number = 0;
 
-        // this.triangles.forEach(
-        //     (triangle) => {
-        //         triangle.update();
-        //         var model = triangle.get_model();
-        //         for (var j: number = 0; j < 16; j++) {
-        //             this.object_data[16 * i + j] = <number>model.at(j);
-        //         }
-        //         i++;
-        //     }
-        // );
+        this.triangles.forEach(
+            (triangle) => {
+                triangle.update();
+                var model = triangle.get_model();
+                for (var j: number = 0; j < 16; j++) {
+                    this.object_data[16 * i + j] = <number>model.at(j);
+                }
+                i++;
+            }
+        );
 
         this.floorTransformationModel.forEach(
             (quad) => {
@@ -131,13 +103,6 @@ export class Scene {
             }
         );
 
-
-
-        //this.statue.update();
-        // var model = this.statue.get_model();
-        // for (var j: number = 0; j < 16; j++) {
-        //     this.object_data[16 * i + j] = <number>model.at(j);
-        // }
         i++;
 
         this.player.update();
@@ -148,13 +113,14 @@ export class Scene {
     }
 
     get_renderables(): RenderData {
+
+
         return {
             view_transform: this.player.get_view(),
             model_transforms: this.object_data,
             object_counts: {
                 [object_types.TRIANGLE]: this.triangle_count,
                 [object_types.FLOOR]: this.quad_count,
-                [object_types.STANDING_QUAD]: this.standing_quad_count,
             }
         }
     }
