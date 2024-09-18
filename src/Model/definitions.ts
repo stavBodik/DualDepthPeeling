@@ -7,7 +7,9 @@ export enum object_types {
 
 export enum pipeline_types {
     SKY,
-    BASE_PIPELINE
+    DUEL_PEELING_PIPELINE,
+    INIT_DUEL_PEELING_PIPELINE,
+    SCREEN_PIPELINE
 }
 
 export interface RenderData {

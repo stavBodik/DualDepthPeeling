@@ -11,11 +11,6 @@ struct ObjectData {
 @binding(1) @group(0) var<storage, read> objects: ObjectData;
 
 
-@binding(0) @group(1) var myTexture: texture_2d<f32>;
-@binding(1) @group(1) var mySampler: sampler;
-@binding(2) @group(1)  var<uniform> applyAlpha: u32;
-
-
 
 struct Fragment {
     @builtin(position) Position : vec4<f32>,
@@ -37,15 +32,5 @@ fn vs_main(
 
 @fragment
 fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<f32>) -> @location(0) vec4<f32> {
-   
-    var color = textureSample(myTexture, mySampler, TexCoord);
-    
-    if(applyAlpha == 1u)
-    {
-        color.a = 0.5; 
-    }
-
-
-        
-    return vec4(color.rgb * color.a,color.a);
+    return vec4(-fragCoord.z,fragCoord.z,0.0,1.0);
 }

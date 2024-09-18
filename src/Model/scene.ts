@@ -26,12 +26,37 @@ export class Scene {
         this.triangle_count = 0;
         this.quad_count = 0;
 
-       this.make_triangles();
+        //this.make_triangles();
         this.CreateFloorTransformationModel();
+        this.CreateStandingQuads();
 
         this.player = new Camera(
             [-2, 0, 0.5], 0, 0
         );
+
+    }
+
+    CreateStandingQuads() {
+
+        this.floorTransformationModel.push(new QuadTransformationModel([2, 0, 0],[0,Deg2Rad(90),0]));
+        this.floorTransformationModel.push(new QuadTransformationModel([3, 0.5, 0],[0,Deg2Rad(90),0]));
+
+        var blank_matrix = mat4.create();
+        let offset : number = this.object_data.length-1 ;
+
+        for (var j: number = 0; j < 16; j++) {
+            this.object_data[offset+j] = <number>blank_matrix.at(j);
+        }
+
+        offset  = this.object_data.length-1 ;
+        
+        blank_matrix = mat4.create();
+        for (var j: number = 0; j < 16; j++) {
+            this.object_data[offset+j] = <number>blank_matrix.at(j);
+        }
+
+
+        this.standing_quad_count=2;
 
     }
 
