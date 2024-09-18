@@ -103,22 +103,22 @@ export class Renderer {
     async createDepthBufferResources() {
 
         
-        const depthBufferDescriptor: GPUTextureDescriptor = {
-            size: {width: this.canvas.width,height: this.canvas.height,depthOrArrayLayers: 1},
+        const colorAttachmentTextureDescriptor: GPUTextureDescriptor = {
+            size: {width: this.canvas.width,height: this.canvas.height},
             format: this.gpuTextureColorFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
         }
 
-        this.depthBuffer1 = this.device.createTexture(depthBufferDescriptor);
-        this.depthBufferView1 = this.depthBuffer1.createView();
+         this.depthBuffer1 =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.depthBufferView1 =  this.depthBuffer1.createView();
 
 
-        this.depthBuffer2 = this.device.createTexture(depthBufferDescriptor);
-        this.depthBufferView2 = this.depthBuffer2.createView();
+        this.depthBuffer2 =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.depthBufferView2 =  this.depthBuffer2.createView();
 
 
 
-        this.screenTextureSampler = this.device.createSampler({
+        this.screenTextureSampler =  this.device.createSampler({
             addressModeU: "repeat",
             addressModeV: "repeat",
             magFilter: "linear",
@@ -128,17 +128,8 @@ export class Renderer {
         });
 
 
-        this.back_color_target_texture = this.device.createTexture(
-            {
-                size: {
-                    width: this.canvas.width,
-                    height: this.canvas.height,
-                },
-                format: this.gpuTextureColorFormat,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-            }
-        );
-        this.back_color_target_texture_view = this.back_color_target_texture.createView();
+        this.back_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.back_color_target_texture_view =  this.back_color_target_texture.createView();
 
     }
 
@@ -267,7 +258,7 @@ export class Renderer {
                 },
                 {
                     binding: 1,
-                    resource: this.back_color_target_texture_view
+                    resource: this.depthBufferView1
                 },
             ]
         });
@@ -574,7 +565,7 @@ export class Renderer {
     async render(renderables: RenderData, camera: Camera) {
         
          //Early exit tests
-         if (!this.device) {
+         if (!this.device || !this.depthBuffer1 || !this.depthBuffer2) {
             return;
          }
         
@@ -590,7 +581,7 @@ export class Renderer {
 
 
         
-        await this.initDepthValues(renderables,this.depthBufferView2,commandEncoder);
+        await this.initDepthValues(renderables,this.depthBufferView1,commandEncoder);
 
 
         // //Depth Peeling Loop
@@ -623,26 +614,26 @@ export class Renderer {
 
 
 
-        //      //accmulate layers with blending between them.
-        //      renderpass1  = commandEncoder.beginRenderPass({
-        //         colorAttachments: [{
-        //             view: finalTextureView,
-        //             clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-        //             loadOp: i === 0 ? "clear" : "load",
-        //             storeOp: "store",
-        //         }]
-        //     });
+             //accmulate layers with blending between them.
+           let  renderpass1  = commandEncoder.beginRenderPass({
+                colorAttachments: [{
+                    view: finalTextureView,
+                    clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: "clear",
+                    storeOp: "store",
+                 }]
+             });
 
 
-        //     renderpass1.setPipeline(this.screen_pipeline);
-        //     renderpass1.setBindGroup(0, this.screen_bind_group);
-        //     renderpass1.draw(6, 1, 0, 0);
-        //     renderpass1.end();
+             renderpass1.setPipeline(this.pipelines[pipeline_types.SCREEN_PIPELINE] as GPURenderPipeline);
+             renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.SCREEN] as GPUBindGroup);
+             renderpass1.draw(6, 1, 0, 0);
+             renderpass1.end();
         // }
             
 
         // //Sky cube is the last layer in finalTextureView layers
-        // await this.drawSky(finalTextureView,commandEncoder);
+         //await this.drawSky(finalTextureView,commandEncoder);
 
         
 
@@ -690,13 +681,9 @@ export class Renderer {
         renderpass2.end();
     }
     
-    async drawPeeledRenderPass(renderables: RenderData,renderpass : GPURenderPassEncoder ) {
+    async drawModel(renderables: RenderData,renderpass : GPURenderPassEncoder ) {
 
-       
-       
-        
-        renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
-       
+              
 
         renderpass.setBindGroup(0, this.bindingGroups[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroup );
 
@@ -790,11 +777,10 @@ export class Renderer {
     //init the first depth buffer that is used in pass 0 to have -minDepth,MaxDepth between all fragments, for each pixel.
     async initDepthValues(renderables: RenderData,depthTextureView : GPUTextureView, commandEncoder : GPUCommandEncoder)
     {
-
         //Set all values of textureViewToClear to be -Max_Depth
         let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
             colorAttachments: [{
-                view: this.context.getCurrentTexture().createView(),
+                view: depthTextureView,
                 clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
                 loadOp: "clear",
                 storeOp: "store",
@@ -803,81 +789,7 @@ export class Renderer {
 
         renderpass.setPipeline(this.pipelines[pipeline_types.INIT_DUEL_PEELING_PIPELINE] as GPURenderPipeline);
 
-        renderpass.setBindGroup(0, this.bindingGroups[binding_group_types.BASE_SCENE] as GPUBindGroup );
-
-         
-
-        var objects_drawn: number = 0;
-        
-
-        //Floor Draw
-        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
-
-        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
-      
-       
-        renderpass.draw(
-            6, renderables.object_counts[object_types.FLOOR], 
-            0, objects_drawn
-        );
-
-
-        objects_drawn += renderables.object_counts[object_types.FLOOR];
-
-
-
-
-        renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
-
-
-        renderpass.draw(
-            6, 1, 
-            0, objects_drawn
-        );
-
-
-        objects_drawn += 1;
-
-
-
-
-        
-
-
-
-        renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
-
-
-        renderpass.draw(
-            6, 1, 
-            0, objects_drawn
-        );
-
-
-        objects_drawn += 1;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        renderpass.end();
+        this.drawModel(renderables,renderpass);
     }
     
 }
