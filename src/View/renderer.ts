@@ -340,7 +340,7 @@ export class Renderer {
                     },
                 },
                 {
-                    format:this.gpuDepthTextureColorFormat
+                    format:this.gpuTextureColorFormat
                 }]
             },
     
@@ -639,6 +639,8 @@ export class Renderer {
 
         let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView2 : this.depthBufferView1;
 
+        let depthBufferBindingGroup  = (i % 2) === 0 ? this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] : this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_2];
+
         let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
             colorAttachments: [{
                 view: depthBufferResult,
@@ -655,9 +657,27 @@ export class Renderer {
         });
 
         renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
-        renderpass.setBindGroup(2,this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroup);
+        renderpass.setBindGroup(2,depthBufferBindingGroup as GPUBindGroup);
 
         this.drawModel(renderables,renderpass);
+
+
+
+        
+        let  renderpass1  = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: finalTextureView,
+                clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: "load",
+                storeOp: "store",
+             }]
+         });
+
+
+         renderpass1.setPipeline(this.pipelines[pipeline_types.SCREEN_PIPELINE] as GPURenderPipeline);
+         renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.SCREEN] as GPUBindGroup);
+         renderpass1.draw(6, 1, 0, 0);
+         renderpass1.end();
     }
 
 
@@ -694,20 +714,7 @@ export class Renderer {
 
 
 
-           let  renderpass1  = commandEncoder.beginRenderPass({
-                colorAttachments: [{
-                    view: finalTextureView,
-                    clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                    loadOp: "clear",
-                    storeOp: "store",
-                 }]
-             });
-
-
-             renderpass1.setPipeline(this.pipelines[pipeline_types.SCREEN_PIPELINE] as GPURenderPipeline);
-             renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.SCREEN] as GPUBindGroup);
-             renderpass1.draw(6, 1, 0, 0);
-             renderpass1.end();
+           
         // }
             
 

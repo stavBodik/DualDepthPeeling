@@ -50,6 +50,8 @@ fn vs_main(
 @fragment
 fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<f32>) -> FragmentOutputs {
    
+    var color = textureSample(myTexture, mySampler, TexCoord);
+
 
     var outputs: FragmentOutputs;
 
@@ -65,17 +67,21 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
     if (fragCoord.z < nearestDepth || fragCoord.z > farthestDepth) {
 		// Skip this depth in the peeling algorithm, it was already peeled.
 		outputs.depthBufferTextureTarget =  vec4(-MAX_DEPTH,-MAX_DEPTH,0,0);
+            outputs.backTextureTarget = vec4(1.0,0.0,0.0,1.0);
+
+        return outputs;
 	}
 
 	if (fragCoord.z > nearestDepth && fragCoord.z < farthestDepth) {
 		// This fragment needs to be peeled, GL_MAX will change the new range and on next pass we will color this layer
 		outputs.depthBufferTextureTarget =  vec4(-fragCoord.z,fragCoord.z,0,0);
+        outputs.backTextureTarget = vec4(0.0,0.0,0.0,1.0);
+        return outputs;
 	}
 
 
 
     // If we made it here, this fragment is on the peeled layer from last pass, shade it (get its color);    
-    var color = textureSample(myTexture, mySampler, TexCoord);
     
     if(applyAlpha == 1u)
     {
@@ -88,9 +94,15 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
 	outputs.depthBufferTextureTarget =  vec4(-MAX_DEPTH,-MAX_DEPTH,0,0);
 
 
-    if (fragDepth == farthestDepth) {
-		outputs.backTextureTarget = color;
-	} 
+    outputs.backTextureTarget = vec4(0.0,1.0,0.0,1.0);
+
+    // if (fragCoord.z == nearestDepth) {
+	// 	outputs.backTextureTarget = color;
+	// } 
+    // else
+    // {
+    //     outputs.backTextureTarget = vec4(0.0,0.0,0.0,1.0);
+    // }
 
         
     return outputs;
