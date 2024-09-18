@@ -6,10 +6,16 @@ export enum object_types {
 }
 
 export enum pipeline_types {
-    SKY,
+    SKY_PIPELINE,
     DUEL_PEELING_PIPELINE,
     INIT_DUEL_PEELING_PIPELINE,
     SCREEN_PIPELINE
+}
+
+export enum binding_group_types {
+    SKY,
+    BASE_SCENE,
+    SCREEN,
 }
 
 export interface RenderData {

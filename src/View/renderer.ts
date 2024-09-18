@@ -7,7 +7,7 @@ import { TriangleMesh } from "./triangle_mesh";
 import { QuadMesh } from "./quad_mesh";
 import { mat4 } from "gl-matrix";
 import { Material } from "./material";
-import { pipeline_types, object_types, RenderData } from "../model/definitions";
+import { pipeline_types, object_types, RenderData,binding_group_types } from "../model/definitions";
 import { SkyCubeMaterial } from "./sky_cube_material";
 import { Camera } from "../model/camera";
 
@@ -27,8 +27,8 @@ export class Renderer {
     cameraViewProjectionBuffer: GPUBuffer;
 
     pipelines: {[pipeline in pipeline_types]?: GPURenderPipeline} = {};
-    bindingGroupLayouts: {[pipeline in pipeline_types]?: GPUBindGroupLayout} = {};
-    bindingGroups: {[pipeline in pipeline_types]?: GPUBindGroup } = {};
+    bindingGroupLayouts: {[bindingGrpup in binding_group_types]?: GPUBindGroupLayout} = {};
+    bindingGroups: {[bindingGrpup in binding_group_types]?: GPUBindGroup } = {};
 
     // Depth stuff
 
@@ -146,7 +146,7 @@ export class Renderer {
 
         this.bindingGroupLayouts = {}
 
-        this.bindingGroupLayouts[pipeline_types.SKY] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[binding_group_types.SKY] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -172,7 +172,7 @@ export class Renderer {
 
         });
 
-        this.bindingGroupLayouts[pipeline_types.DUEL_PEELING_PIPELINE] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[binding_group_types.BASE_SCENE] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -193,12 +193,7 @@ export class Renderer {
         });
 
 
-
-
-
-
-
-        this.bindingGroupLayouts[pipeline_types.SCREEN_PIPELINE] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[binding_group_types.SCREEN] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -222,8 +217,8 @@ export class Renderer {
 
         this.bindingGroups = {}
        
-        this.bindingGroups[pipeline_types.DUEL_PEELING_PIPELINE] = this.device.createBindGroup({
-            layout: this.bindingGroupLayouts[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroupLayout,
+        this.bindingGroups[binding_group_types.BASE_SCENE] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -241,8 +236,8 @@ export class Renderer {
             ]
         });
 
-        this.bindingGroups[pipeline_types.SKY] = this.device.createBindGroup({
-            layout: this.bindingGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
+        this.bindingGroups[binding_group_types.SKY] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.SKY] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -263,8 +258,8 @@ export class Renderer {
 
 
 
-        this.bindingGroups[pipeline_types.SCREEN_PIPELINE] = this.device.createBindGroup({
-            layout: this.bindingGroupLayouts[pipeline_types.SCREEN_PIPELINE] as GPUBindGroupLayout,
+        this.bindingGroups[binding_group_types.SCREEN] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.SCREEN] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -283,7 +278,7 @@ export class Renderer {
         var pipelineLayout = this.device.createPipelineLayout({
             label: "base_pipelineLayout",
             bindGroupLayouts: [
-                this.bindingGroupLayouts[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroupLayout, 
+                this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout, 
                 this.quadMaterial.bindGroupLayout,
             ]
         });
@@ -327,7 +322,7 @@ export class Renderer {
         var pipelineLayoutInit = this.device.createPipelineLayout({
             label: "init_pipelineLayout",
             bindGroupLayouts: [
-                this.bindingGroupLayouts[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroupLayout 
+                this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout 
             ]
         });
 
@@ -383,11 +378,11 @@ export class Renderer {
 
         pipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.bindingGroupLayouts[pipeline_types.SKY] as GPUBindGroupLayout,
+                this.bindingGroupLayouts[binding_group_types.SKY] as GPUBindGroupLayout,
             ]
         });
 
-        this.pipelines[pipeline_types.SKY] = this.device.createRenderPipeline({
+        this.pipelines[pipeline_types.SKY_PIPELINE] = this.device.createRenderPipeline({
             label:"Sky",
             vertex : {
                 module : this.device.createShaderModule({
@@ -437,7 +432,7 @@ export class Renderer {
 
 
         const screen_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [this.bindingGroupLayouts[pipeline_types.SCREEN_PIPELINE] as GPUBindGroupLayout]
+            bindGroupLayouts: [this.bindingGroupLayouts[binding_group_types.SCREEN] as GPUBindGroupLayout]
         });
 
         this.pipelines[pipeline_types.SCREEN_PIPELINE] = this.device.createRenderPipeline({
@@ -687,8 +682,8 @@ export class Renderer {
         });
 
          //SKY Draw
-        renderpass2.setPipeline(this.pipelines[pipeline_types.SKY] as GPURenderPipeline);
-        renderpass2.setBindGroup(0, this.bindingGroups[pipeline_types.SKY] as GPUBindGroup);
+        renderpass2.setPipeline(this.pipelines[pipeline_types.SKY_PIPELINE] as GPURenderPipeline);
+        renderpass2.setBindGroup(0, this.bindingGroups[binding_group_types.SKY] as GPUBindGroup);
         renderpass2.setBindGroup(1, this.quadMaterial.bindGroup); 
         renderpass2.draw(6, 1, 0, 0);
 
@@ -806,13 +801,9 @@ export class Renderer {
             }]
         });
 
-        renderpass.label = "Init duel peeling render pass";
-
         renderpass.setPipeline(this.pipelines[pipeline_types.INIT_DUEL_PEELING_PIPELINE] as GPURenderPipeline);
 
-
-
-        renderpass.setBindGroup(0, this.bindingGroups[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroup );
+        renderpass.setBindGroup(0, this.bindingGroups[binding_group_types.BASE_SCENE] as GPUBindGroup );
 
          
 
