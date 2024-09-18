@@ -635,11 +635,13 @@ export class Renderer {
 
 
 
+    for(let i=0; i<2; i++){
 
+        let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView2 : this.depthBufferView1;
 
         let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
             colorAttachments: [{
-                view: this.depthBufferView2,
+                view: depthBufferResult,
                 clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
                 loadOp: "load",
                 storeOp: "store",
@@ -656,7 +658,7 @@ export class Renderer {
         renderpass.setBindGroup(2,this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroup);
 
         this.drawModel(renderables,renderpass);
-
+    }
 
 
 
