@@ -16,6 +16,8 @@ export enum binding_group_types {
     SKY,
     BASE_SCENE,
     SCREEN,
+    DUEL_PEELING_DEPTH_BUFFER_1,
+    DUEL_PEELING_DEPTH_BUFFER_2
 }
 
 export interface RenderData {

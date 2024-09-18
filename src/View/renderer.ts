@@ -1,6 +1,6 @@
 import sky_shader from "./shaders/sky_shader.wgsl";
 import init_duel_peeling_shader from "./shaders/dual_peeling_init.wgsl";
-import base_shader from "./shaders/base_shader.wgsl";
+import duel_peeling_shader from "./shaders/duel_peeling_shader.wgsl";
 import screen_shader from "./shaders/screen_shader.wgsl";
 
 import { TriangleMesh } from "./triangle_mesh";
@@ -200,6 +200,17 @@ export class Renderer {
 
         });
 
+        this.bindingGroupLayouts[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] = this.device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {}
+                },
+            ]
+
+        });
+
 
     }
 
@@ -247,8 +258,6 @@ export class Renderer {
             ]
         });
 
-
-
         this.bindingGroups[binding_group_types.SCREEN] = this.device.createBindGroup({
             layout: this.bindingGroupLayouts[binding_group_types.SCREEN] as GPUBindGroupLayout,
             entries: [
@@ -258,7 +267,30 @@ export class Renderer {
                 },
                 {
                     binding: 1,
+                    resource: this.back_color_target_texture_view
+                },
+            ]
+        });
+
+
+
+        this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
                     resource: this.depthBufferView1
+                },
+            ]
+        });
+
+
+        this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_2] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: this.depthBufferView2
                 },
             ]
         });
@@ -266,21 +298,22 @@ export class Renderer {
 
     async createPipelines() {
         
-        var pipelineLayout = this.device.createPipelineLayout({
-            label: "base_pipelineLayout",
+        var duelPeelingPipelineLayout = this.device.createPipelineLayout({
+            label: "duelPeelingPipelineLayout",
             bindGroupLayouts: [
                 this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout, 
                 this.quadMaterial.bindGroupLayout,
+                this.bindingGroupLayouts[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroupLayout,
             ]
         });
         
 
             
         this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] = this.device.createRenderPipeline({
-            label:"BASE_PIPELINE",
+            label:"DUEL_PEELING_PIPELINE",
             vertex : {
                 module : this.device.createShaderModule({
-                    code : base_shader
+                    code : duel_peeling_shader
                 }),
                 entryPoint : "vs_main",
                 buffers: [this.quadMesh.bufferLayout,]
@@ -288,11 +321,26 @@ export class Renderer {
     
             fragment : {
                 module : this.device.createShaderModule({
-                    code : base_shader
+                    code : duel_peeling_shader
                 }),
                 entryPoint : "fs_main",
                 targets : [{
-                    format : this.gpuTextureColorFormat
+                    format : this.gpuTextureColorFormat,
+                    blend: {
+                        color: {
+                            srcFactor: 'one',
+                            dstFactor: 'one',
+                            operation: 'max', // Using max blend operation
+                        },
+                        alpha: {
+                            srcFactor: 'one',
+                            dstFactor: 'one',
+                            operation: 'max', // Using max blend operation for alpha as well
+                        },
+                    },
+                },
+                {
+                    format:this.gpuDepthTextureColorFormat
                 }]
             },
     
@@ -300,14 +348,16 @@ export class Renderer {
                 topology : "triangle-list"
             },
     
-            layout: pipelineLayout,
-            depthStencil: {
-                format: this.gpuDepthTextureColorFormat,
-                depthWriteEnabled: false,
-                depthCompare: "never",
-            },
+            layout: duelPeelingPipelineLayout
             
         });
+
+
+
+
+
+
+
 
 
         var pipelineLayoutInit = this.device.createPipelineLayout({
@@ -367,9 +417,9 @@ export class Renderer {
 
 
 
-        pipelineLayout = this.device.createPipelineLayout({
+        var skyPipelineLayout = this.device.createPipelineLayout({
             bindGroupLayouts: [
-                this.bindingGroupLayouts[binding_group_types.SKY] as GPUBindGroupLayout,
+                this.bindingGroupLayouts[binding_group_types.SKY] as GPUBindGroupLayout               
             ]
         });
 
@@ -410,7 +460,7 @@ export class Renderer {
                 topology : "triangle-list"
             },
     
-            layout: pipelineLayout,
+            layout: skyPipelineLayout,
             depthStencil: {
                 format: this.gpuDepthTextureColorFormat,
                 depthWriteEnabled: true,
@@ -584,6 +634,34 @@ export class Renderer {
         await this.initDepthValues(renderables,this.depthBufferView1,commandEncoder);
 
 
+
+
+
+        let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.depthBufferView2,
+                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
+                loadOp: "load",
+                storeOp: "store",
+            },
+            {
+                view: this.back_color_target_texture_view,
+                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
+                loadOp: "clear",
+                storeOp: "store",
+            },]
+        });
+
+        renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
+        renderpass.setBindGroup(2,this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] as GPUBindGroup);
+
+        this.drawModel(renderables,renderpass);
+
+
+
+
+
+
         // //Depth Peeling Loop
         // const numberOfPeelPassed : number = 3;
 
@@ -614,7 +692,6 @@ export class Renderer {
 
 
 
-             //accmulate layers with blending between them.
            let  renderpass1  = commandEncoder.beginRenderPass({
                 colorAttachments: [{
                     view: finalTextureView,
