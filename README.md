@@ -18,3 +18,8 @@ Moving camera in world space using keyboard and mouse
 
 
 ![dueldepthpeeling](https://github.com/user-attachments/assets/6a522a25-1db4-40c2-9d20-e2fb447e8498)
+
+
+Here is a link to the 1 layer depth peeling implementation:
+
+https://github.com/stavBodik/DepthPeeling
