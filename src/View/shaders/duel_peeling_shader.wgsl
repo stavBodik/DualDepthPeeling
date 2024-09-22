@@ -1,5 +1,5 @@
 const MAX_DEPTH: f32 = 1.0;
-const EPSILON: f32 = 0.00001;
+const EPSILON: f32 = 0.0000001;
 
 struct TransformData {
     view: mat4x4<f32>,
@@ -65,20 +65,24 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
     let prevDepthBuffer: vec4<f32> = textureLoad(depthBufferTexturePrev, fragmentTextureCords, 0);  // Mip level 0
 
 
+    // All of the fragments before, did set depth to -1,-1 meanning we are done, no need more passes.
+    // This will be detected by the occlusion query.
+    if(abs(prevDepthBuffer.x + MAX_DEPTH) < EPSILON && abs(prevDepthBuffer.y  + MAX_DEPTH) < EPSILON)
+    {
+        discard;
+    }
 
-    // if(prevDepthBuffer.x == -MAX_DEPTH && prevDepthBuffer.y == -MAX_DEPTH)
-    // {
-    //     discard;
-    // }
+   // return outputs;
 
     let nearestDepth = -prevDepthBuffer.x;
 	let farthestDepth = prevDepthBuffer.y;
 
 
-
+    
+ 
     if (fragCoord.z < nearestDepth  || fragCoord.z > farthestDepth) {
 		// Skip this depth in the peeling algorithm, it was already peeled.
-		outputs.depthBufferTextureTarget =  vec2(-MAX_DEPTH,-MAX_DEPTH);
+        outputs.depthBufferTextureTarget =  vec2(-MAX_DEPTH,-MAX_DEPTH);
         return outputs;
 	}
 
@@ -118,7 +122,6 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
         outputs.frontTextureTarget =  vec4<f32>(0.0, 0.0, 0.0, 0.0); 
     }
     
-
-        
+    
     return outputs;
 }

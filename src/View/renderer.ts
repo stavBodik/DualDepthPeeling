@@ -829,134 +829,119 @@ export class Renderer {
          }
 
          
-         //const occlusionResultBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,});
-
-
-         //const occlusionResolveBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,});
-       
 
          let start: number = performance.now();
 
 
         this.prepareScene(renderables, camera);
 
-
+        const occlusionResultBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,});
+        const occlusionResolveBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,});
+        
         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
 
+        //init the first depth buffer that is used in pass 0 to have -minDepth,MaxDepth between all fragments, for each pixel.
         await this.initDepthValues(renderables,this.depthBufferView1,commandEncoder);
 
-        let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: this.depthBufferView2,
-                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
-                loadOp: "clear",
-                storeOp: "store",
-            }]
-        });
+        let isPeelFinished :boolean = false;
 
+        const numberOfDuelPeelingPasses : number = 50;
 
-        renderpass.end();
+        for(let i=0; i<numberOfDuelPeelingPasses && !isPeelFinished; i++){
 
-
-    for(let i=0; i<2; i++){
-
-
-        let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView2 : this.depthBufferView1;
-
-        let depthBufferBindingGroup  = (i % 2) === 0 ? this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] : this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_2];
-
-        let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [
-            {
-                view: depthBufferResult,
-                loadOp: "load",
-                storeOp: "store",
-            },
-            {
-                view: this.front_peeled_color_target_texture_view,
-                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: "clear",
-                storeOp: "store",
-            },
-            {
-                view: this.back_peeled_color_target_texture_view,
-                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: "clear",
-                storeOp: "store",
-            },
-           ],
-           occlusionQuerySet: this.occlusionQuerySet,
-        });
-
-        renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
-        renderpass.setBindGroup(2,depthBufferBindingGroup as GPUBindGroup);
-
+            let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView2 : this.depthBufferView1;
         
-        // Begin an occlusion query at index 0
-       // renderpass.beginOcclusionQuery(0);
+            let depthBufferBindingGroup  = (i % 2) === 0 ? this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] : this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_2];
+
+            let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+                colorAttachments: [
+                {
+                    view: depthBufferResult,
+                    clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
+                    loadOp: "clear",
+                    storeOp: "store",
+                },
+                {
+                    view: this.front_peeled_color_target_texture_view,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: "clear",
+                    storeOp: "store",
+                },
+                {
+                    view: this.back_peeled_color_target_texture_view,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: "clear",
+                    storeOp: "store",
+                },
+            ],
+            occlusionQuerySet: this.occlusionQuerySet,
+            });
+
+            renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
+            renderpass.setBindGroup(2,depthBufferBindingGroup as GPUBindGroup);
+
+            
+            renderpass.beginOcclusionQuery(0);
+            
+            await this.drawModel(renderables,renderpass);
+
+            renderpass.endOcclusionQuery();
+
+            renderpass.end();
+
+            commandEncoder.resolveQuerySet(this.occlusionQuerySet, 0, 1, occlusionResolveBuffer, 0);
+            if (occlusionResultBuffer.mapState === 'unmapped') {
+                commandEncoder.copyBufferToBuffer(occlusionResolveBuffer, 0, occlusionResultBuffer, 0, occlusionResultBuffer.size);
+            }
+
+
+            let  renderpass1  = commandEncoder.beginRenderPass({
+                colorAttachments: [
+                {
+                    //view: finalTextureView,
+                    view:this.front_accumulated_color_target_texture_view,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: i === 0 ? "clear" : "load",
+                    storeOp: "store",
+                },
+                {
+                    view:this.back_accumulated_color_target_texture_view,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: i === 0 ? "clear" : "load",
+                    storeOp: "store",
+                }]
+            });
+
+
+            renderpass1.setPipeline(this.pipelines[pipeline_types.ACCUMULATE_SCREEN_PIPELINE] as GPURenderPipeline);
+            renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.ACCUMULATE_SCREEN] as GPUBindGroup);
+            renderpass1.draw(6, 1, 0, 0);
+            renderpass1.end();
+
+    
         
-        await this.drawModel(renderables,renderpass);
+            this.device.queue.submit([commandEncoder.finish()]);
+            
 
-        //renderpass.endOcclusionQuery();
+            
+            if (occlusionResultBuffer.mapState === 'unmapped') {
+                await occlusionResultBuffer.mapAsync(GPUMapMode.READ);
+                const results: BigUint64Array = new BigUint64Array(occlusionResultBuffer.getMappedRange());    
+                
+                if (results[0] === 0n) {
+                    isPeelFinished = true; //we are done, peeled the middle layer , last layer.
+                }
+            
+                occlusionResultBuffer.unmap();
+            }
+            
 
-        renderpass.end();
-
-        // commandEncoder.resolveQuerySet(this.occlusionQuerySet, 0, 1, occlusionResolveBuffer, 0);
-        // if (occlusionResultBuffer.mapState === 'unmapped') {
-        //     commandEncoder.copyBufferToBuffer(occlusionResolveBuffer, 0, occlusionResultBuffer, 0, occlusionResultBuffer.size);
-        // }
-
-
-        let  renderpass1  = commandEncoder.beginRenderPass({
-            colorAttachments: [
-            {
-                //view: finalTextureView,
-                view:this.front_accumulated_color_target_texture_view,
-                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: i === 0 ? "clear" : "load",
-                storeOp: "store",
-             },
-             {
-                view:this.back_accumulated_color_target_texture_view,
-                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: i === 0 ? "clear" : "load",
-                storeOp: "store",
-             }]
-         });
+            commandEncoder = this.device.createCommandEncoder();
 
 
-         renderpass1.setPipeline(this.pipelines[pipeline_types.ACCUMULATE_SCREEN_PIPELINE] as GPURenderPipeline);
-         renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.ACCUMULATE_SCREEN] as GPUBindGroup);
-         renderpass1.draw(6, 1, 0, 0);
-         renderpass1.end();
+        }//loop endy
 
-
-
-
-         //let depthBufferResultTexture :GPUTexture  = (i % 2) === 0 ? this.depthBuffer2 : this.depthBuffer1;
-
- 
-       
-         //this.device.queue.submit([commandEncoder.finish()]);
-        
-
-
-
-        
-        //  if (occlusionResultBuffer.mapState === 'unmapped') {
-        //      await occlusionResultBuffer.mapAsync(GPUMapMode.READ).then(() => {
-        //      const results : BigUint64Array = new BigUint64Array(occlusionResultBuffer.getMappedRange()).slice();
-        //      console.log(results[0]);
- 
-        //      occlusionResultBuffer.unmap();
- 
-        //  })}
-
-        //commandEncoder = this.device.createCommandEncoder();
-
-    }//loop end
-
-    const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
+        const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
 
 
         //front blend between accumulated front and back textures 
@@ -981,9 +966,6 @@ export class Renderer {
              renderpass1.setBindGroup(0, accumulatedBindingGroup as GPUBindGroup);
              renderpass1.draw(6, 1, 0, 0);
              renderpass1.end();
-
-
-
         }
 
 
@@ -1041,7 +1023,7 @@ export class Renderer {
         var objects_drawn: number = 0;
         
         //Floor Draw
-        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
+         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
         renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
       

@@ -66,7 +66,7 @@ export class Scene {
         }
 
 
-        this.standing_quad_count=3;
+        this.standing_quad_count=2;
 
     }
 
