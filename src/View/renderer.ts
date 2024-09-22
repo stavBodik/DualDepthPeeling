@@ -146,15 +146,11 @@ export class Renderer {
         }
 
         this.depthBuffer1 =  this.device.createTexture(this.depthBuffercolorAttachmentTextureDescriptor);
-        this.depthBuffer1.label = "this.depthBuffer1";
         this.depthBufferView1 =  this.depthBuffer1.createView();
-        this.depthBufferView1.label = "this.depthBufferView1";
 
 
         this.depthBuffer2 =  this.device.createTexture(this.depthBuffercolorAttachmentTextureDescriptor);
-        this.depthBuffer2.label  = "this.depthBuffer2";
         this.depthBufferView2 =  this.depthBuffer2.createView();
-        this.depthBufferView2.label = "this.depthBufferView2";
 
 
         this.screenTextureSampler =  this.device.createSampler({
@@ -174,26 +170,18 @@ export class Renderer {
         }
 
         this.back_peeled_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
-        this.back_peeled_color_target_texture.label = "1";
         this.back_peeled_color_target_texture_view =  this.back_peeled_color_target_texture.createView();
-        this.back_peeled_color_target_texture_view.label = "this.back_peeled_color_target_texture_view";
 
         this.front_peeled_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
-        this.front_peeled_color_target_texture.label  = "2";
         this.front_peeled_color_target_texture_view =  this.front_peeled_color_target_texture.createView();
-        this.front_peeled_color_target_texture_view.label = "front_peeled_color_target_texture_view";
 
 
         this.back_accumulated_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
-        this.back_accumulated_color_target_texture.label = "3";
         this.back_accumulated_color_target_texture_view =  this.back_accumulated_color_target_texture.createView();
-        this.back_accumulated_color_target_texture_view.label = "back_accumulated_color_target_texture_view";
 
 
         this.front_accumulated_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
-        this.front_accumulated_color_target_texture.label = "4";
         this.front_accumulated_color_target_texture_view =  this.front_accumulated_color_target_texture.createView();
-        this.front_accumulated_color_target_texture_view.label = "this.front_accumulated_color_target_texture_view";
     }
 
     async createBindGroupLayouts() {
@@ -895,10 +883,10 @@ export class Renderer {
             }
 
 
+            //Accmulate back and front layers using front and back blending.
             let  renderpass1  = commandEncoder.beginRenderPass({
                 colorAttachments: [
                 {
-                    //view: finalTextureView,
                     view:this.front_accumulated_color_target_texture_view,
                     clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
                     loadOp: i === 0 ? "clear" : "load",
@@ -920,6 +908,7 @@ export class Renderer {
 
     
         
+            
             this.device.queue.submit([commandEncoder.finish()]);
             
 
@@ -939,12 +928,13 @@ export class Renderer {
             commandEncoder = this.device.createCommandEncoder();
 
 
-        }//loop endy
+        }//loop end
+
 
         const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
 
 
-        //front blend between accumulated front and back textures 
+        //front blending between accumulated front and back textures 
         for(let i=0; i< 2 ; i++)
         {
 
@@ -1018,59 +1008,30 @@ export class Renderer {
 
         renderpass.setBindGroup(0, this.bindingGroups[pipeline_types.DUEL_PEELING_PIPELINE] as GPUBindGroup );
 
-         
-
         var objects_drawn: number = 0;
         
-        //Floor Draw
-         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
+        renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
-        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
-      
        
-        renderpass.draw(
-            6, renderables.object_counts[object_types.FLOOR], 
-            0, objects_drawn
-        );
-
-
+        //Floor Quads Draw
+        renderpass.setBindGroup(1, this.quadMaterial.bindGroup); 
+        renderpass.draw(6, renderables.object_counts[object_types.FLOOR], 0, objects_drawn);
         objects_drawn += renderables.object_counts[object_types.FLOOR];
 
 
-
-
+        //First purple quad draw
         renderpass.setBindGroup(1, this.purpleQuadMaterial.bindGroup); 
-
-
-        renderpass.draw(
-            6, 1, 
-            0, objects_drawn
-        );
-
-
+        renderpass.draw(6, 1, 0, objects_drawn);
         objects_drawn += 1;
 
-
-
-
-        
-
-
-
+        //Second blue quad draw
         renderpass.setBindGroup(1, this.blueQuadMaterialRed.bindGroup); 
-
-
-        renderpass.draw(
-            6, 1, 
-            0, objects_drawn
-        );
-
-
+        renderpass.draw(6, 1, 0, objects_drawn);
         objects_drawn += 1;
 
 
 
-
+        //Third orange quad draw
         renderpass.setBindGroup(1, this.orangeQuadMaterial.bindGroup); 
 
 
@@ -1081,15 +1042,6 @@ export class Renderer {
 
 
         objects_drawn += 1;
-
-
-
-
-
-
-
-    
-
     }
 
     //init the first depth buffer that is used in pass 0 to have -minDepth,MaxDepth between all fragments, for each pixel.
