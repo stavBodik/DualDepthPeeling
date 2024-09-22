@@ -40,6 +40,8 @@ export class Scene {
 
         this.floorTransformationModel.push(new QuadTransformationModel([2, 0, 0],[0,Deg2Rad(90),0]));
         this.floorTransformationModel.push(new QuadTransformationModel([3, 0.5, 0],[0,Deg2Rad(90),0]));
+        this.floorTransformationModel.push(new QuadTransformationModel([4, 1, 0],[0,Deg2Rad(90),0]));
+
 
         var blank_matrix = mat4.create();
         let offset : number = this.object_data.length-1 ;
@@ -56,7 +58,15 @@ export class Scene {
         }
 
 
-        this.standing_quad_count=2;
+        offset  = this.object_data.length-1 ;
+        
+        blank_matrix = mat4.create();
+        for (var j: number = 0; j < 16; j++) {
+            this.object_data[offset+j] = <number>blank_matrix.at(j);
+        }
+
+
+        this.standing_quad_count=3;
 
     }
 

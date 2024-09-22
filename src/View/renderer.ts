@@ -1,7 +1,8 @@
 import sky_shader from "./shaders/sky_shader.wgsl";
 import init_duel_peeling_shader from "./shaders/dual_peeling_init.wgsl";
 import duel_peeling_shader from "./shaders/duel_peeling_shader.wgsl";
-import screen_shader from "./shaders/screen_shader.wgsl";
+import accumulatte_screen_shader from "./shaders/accumulate_screen_shader.wgsl";
+import final_screen_shader from "./shaders/final_screen_shader.wgsl";
 
 import { TriangleMesh } from "./triangle_mesh";
 import { QuadMesh } from "./quad_mesh";
@@ -17,11 +18,16 @@ export class Renderer {
     frametime: number
 
     gpuTextureColorFormat : GPUTextureFormat;
+    gpuTextureColorFormat_rg32f : GPUTextureFormat;
+
 
     // Device/Context objects
     adapter: GPUAdapter;
     device: GPUDevice;
     context: GPUCanvasContext;
+
+
+    occlusionQuerySet : GPUQuerySet;
 
     // Pipeline objects
     cameraViewProjectionBuffer: GPUBuffer;
@@ -43,19 +49,33 @@ export class Renderer {
     screenTextureSampler : GPUSampler;
 
 
-    back_color_target_texture: GPUTexture;
-    back_color_target_texture_view: GPUTextureView;
+    back_peeled_color_target_texture: GPUTexture;
+    back_peeled_color_target_texture_view: GPUTextureView;
+
+    front_peeled_color_target_texture: GPUTexture;
+    front_peeled_color_target_texture_view: GPUTextureView;
+
+
+
+    back_accumulated_color_target_texture: GPUTexture;
+    back_accumulated_color_target_texture_view: GPUTextureView;
+
+    front_accumulated_color_target_texture: GPUTexture;
+    front_accumulated_color_target_texture_view: GPUTextureView;
+
 
     gpuDepthTextureColorFormat : GPUTextureFormat;
 
+    depthBuffercolorAttachmentTextureDescriptor : GPUTextureDescriptor;
 
     // Assets
     quadMesh: QuadMesh;
     triangleMesh: TriangleMesh;
 
     quadMaterial: Material;
-    standingQuadMaterial: Material;
-    standingQuadMaterialRed: Material;
+    purpleQuadMaterial: Material;
+    blueQuadMaterialRed: Material;
+    orangeQuadMaterial: Material;
 
     objectBuffer: GPUBuffer;
     cameraBuffer: GPUBuffer;
@@ -67,7 +87,7 @@ export class Renderer {
 
    async Initialize() {
 
-        await this.setupDevice();
+        await this.initialSetup();
 
         await this.createAssets();
 
@@ -81,41 +101,60 @@ export class Renderer {
 
     }
 
-    async setupDevice() {
+    async initialSetup() {
 
         this.gpuTextureColorFormat = "rgba8unorm";
         this.gpuDepthTextureColorFormat = "depth24plus";
+        this.gpuTextureColorFormat_rg32f = "rg32float";
 
         //adapter: wrapper around (physical) GPU.
         //Describes features and limits
         this.adapter = <GPUAdapter> await navigator.gpu?.requestAdapter();
+
+        if (!this.adapter.features.has("float32-filterable")) {
+            throw new Error("Filterable 32-bit float textures support is not available");
+        }
+
         //device: wrapper around GPU functionality
         //Function calls are made through the device
-        this.device = <GPUDevice> await this.adapter?.requestDevice();
+        this.device = <GPUDevice> await this.adapter?.requestDevice({requiredFeatures: ["float32-filterable"]});
+
         //context: similar to vulkan instance (or OpenGL context)
         this.context = <GPUCanvasContext> this.canvas.getContext("webgpu");
 
         this.context.configure({device: this.device,format: this.gpuTextureColorFormat,alphaMode: "premultiplied"
         });
 
+
+
+        this.occlusionQuerySet = this.device.createQuerySet({
+            type: "occlusion",
+            count: 1,
+          });
+
+          
+
     }
 
     async createDepthBufferResources() {
 
         
-        const colorAttachmentTextureDescriptor: GPUTextureDescriptor = {
+        this.depthBuffercolorAttachmentTextureDescriptor = {
             size: {width: this.canvas.width,height: this.canvas.height},
-            format: this.gpuTextureColorFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+            format: this.gpuTextureColorFormat_rg32f,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC 
         }
 
-         this.depthBuffer1 =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.depthBuffer1 =  this.device.createTexture(this.depthBuffercolorAttachmentTextureDescriptor);
+        this.depthBuffer1.label = "this.depthBuffer1";
         this.depthBufferView1 =  this.depthBuffer1.createView();
+        this.depthBufferView1.label = "this.depthBufferView1";
 
 
-        this.depthBuffer2 =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.depthBuffer2 =  this.device.createTexture(this.depthBuffercolorAttachmentTextureDescriptor);
+        this.depthBuffer2.label  = "this.depthBuffer2";
         this.depthBufferView2 =  this.depthBuffer2.createView();
-
+        this.depthBufferView2.label = "this.depthBufferView2";
 
 
         this.screenTextureSampler =  this.device.createSampler({
@@ -128,9 +167,33 @@ export class Renderer {
         });
 
 
-        this.back_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
-        this.back_color_target_texture_view =  this.back_color_target_texture.createView();
+        const colorAttachmentTextureDescriptor: GPUTextureDescriptor = {
+            size: {width: this.canvas.width,height: this.canvas.height},
+            format: this.gpuTextureColorFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC 
+        }
 
+        this.back_peeled_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.back_peeled_color_target_texture.label = "1";
+        this.back_peeled_color_target_texture_view =  this.back_peeled_color_target_texture.createView();
+        this.back_peeled_color_target_texture_view.label = "this.back_peeled_color_target_texture_view";
+
+        this.front_peeled_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.front_peeled_color_target_texture.label  = "2";
+        this.front_peeled_color_target_texture_view =  this.front_peeled_color_target_texture.createView();
+        this.front_peeled_color_target_texture_view.label = "front_peeled_color_target_texture_view";
+
+
+        this.back_accumulated_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.back_accumulated_color_target_texture.label = "3";
+        this.back_accumulated_color_target_texture_view =  this.back_accumulated_color_target_texture.createView();
+        this.back_accumulated_color_target_texture_view.label = "back_accumulated_color_target_texture_view";
+
+
+        this.front_accumulated_color_target_texture =  this.device.createTexture(colorAttachmentTextureDescriptor);
+        this.front_accumulated_color_target_texture.label = "4";
+        this.front_accumulated_color_target_texture_view =  this.front_accumulated_color_target_texture.createView();
+        this.front_accumulated_color_target_texture_view.label = "this.front_accumulated_color_target_texture_view";
     }
 
     async createBindGroupLayouts() {
@@ -184,7 +247,7 @@ export class Renderer {
         });
 
 
-        this.bindingGroupLayouts[binding_group_types.SCREEN] = this.device.createBindGroupLayout({
+        this.bindingGroupLayouts[binding_group_types.ACCUMULATE_SCREEN] = this.device.createBindGroupLayout({
             entries: [
                 {
                     binding: 0,
@@ -196,6 +259,28 @@ export class Renderer {
                     visibility: GPUShaderStage.FRAGMENT,
                     texture: {}
                 },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {}
+                },
+            ]
+
+        });
+
+
+        this.bindingGroupLayouts[binding_group_types.FINAL_SCREEN_FRONT] = this.device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: {}
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: {}
+                }
             ]
 
         });
@@ -205,7 +290,11 @@ export class Renderer {
                 {
                     binding: 0,
                     visibility: GPUShaderStage.FRAGMENT,
-                    texture: {}
+                    texture: {
+                        sampleType: 'float',
+                        viewDimension: '2d',
+                        multisampled:false
+                      }
                 },
             ]
 
@@ -258,8 +347,8 @@ export class Renderer {
             ]
         });
 
-        this.bindingGroups[binding_group_types.SCREEN] = this.device.createBindGroup({
-            layout: this.bindingGroupLayouts[binding_group_types.SCREEN] as GPUBindGroupLayout,
+        this.bindingGroups[binding_group_types.ACCUMULATE_SCREEN] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.ACCUMULATE_SCREEN] as GPUBindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -267,8 +356,42 @@ export class Renderer {
                 },
                 {
                     binding: 1,
-                    resource: this.back_color_target_texture_view
+                    resource: this.front_peeled_color_target_texture_view
                 },
+                {
+                    binding: 2,
+                    resource: this.back_peeled_color_target_texture_view
+                }
+            ]
+        });
+
+
+        this.bindingGroups[binding_group_types.FINAL_SCREEN_FRONT] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.FINAL_SCREEN_FRONT] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource:  this.screenTextureSampler
+                },
+                {
+                    binding: 1,
+                    resource: this.front_accumulated_color_target_texture_view
+                }
+            ]
+        });
+
+
+        this.bindingGroups[binding_group_types.FINAL_SCREEN_BACK] = this.device.createBindGroup({
+            layout: this.bindingGroupLayouts[binding_group_types.FINAL_SCREEN_FRONT] as GPUBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource:  this.screenTextureSampler
+                },
+                {
+                    binding: 1,
+                    resource: this.back_accumulated_color_target_texture_view
+                }
             ]
         });
 
@@ -325,7 +448,7 @@ export class Renderer {
                 }),
                 entryPoint : "fs_main",
                 targets : [{
-                    format : this.gpuTextureColorFormat,
+                    format : this.gpuTextureColorFormat_rg32f,
                     blend: {
                         color: {
                             srcFactor: 'one',
@@ -340,7 +463,34 @@ export class Renderer {
                     },
                 },
                 {
-                    format:this.gpuTextureColorFormat
+                    format:this.gpuTextureColorFormat,
+                    blend: {
+                        color: {
+                          srcFactor: 'one',   
+                          dstFactor: 'one',     
+                          operation: 'add'      
+                        },
+                        alpha: {
+                          srcFactor: 'one',    // Ignore B's alpha
+                          dstFactor: 'one',     // Keep A's alpha
+                          operation: 'add'
+                        }
+                      },
+                },
+                {
+                    format:this.gpuTextureColorFormat,
+                    blend: {
+                        color: {
+                          srcFactor: 'one',   
+                          dstFactor: 'one',     
+                          operation: 'add'      
+                        },
+                        alpha: {
+                          srcFactor: 'one',    // Ignore B's alpha
+                          dstFactor: 'one',     // Keep A's alpha
+                          operation: 'add'
+                        }
+                      },
                 }]
             },
     
@@ -363,7 +513,7 @@ export class Renderer {
         var pipelineLayoutInit = this.device.createPipelineLayout({
             label: "init_pipelineLayout",
             bindGroupLayouts: [
-                this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout 
+                this.bindingGroupLayouts[binding_group_types.BASE_SCENE] as GPUBindGroupLayout
             ]
         });
 
@@ -383,7 +533,7 @@ export class Renderer {
                 }),
                 entryPoint : "fs_main",
                 targets : [{
-                    format : this.gpuTextureColorFormat,
+                    format : this.gpuTextureColorFormat_rg32f,
                     blend: {
                         color: {
                             srcFactor: 'one',
@@ -461,11 +611,6 @@ export class Renderer {
             },
     
             layout: skyPipelineLayout,
-            depthStencil: {
-                format: this.gpuDepthTextureColorFormat,
-                depthWriteEnabled: true,
-                depthCompare: "equal",
-            },
         });
 
 
@@ -473,28 +618,28 @@ export class Renderer {
 
 
         const screen_pipeline_layout = this.device.createPipelineLayout({
-            bindGroupLayouts: [this.bindingGroupLayouts[binding_group_types.SCREEN] as GPUBindGroupLayout]
+            bindGroupLayouts: [this.bindingGroupLayouts[binding_group_types.ACCUMULATE_SCREEN] as GPUBindGroupLayout]
         });
 
-        this.pipelines[pipeline_types.SCREEN_PIPELINE] = this.device.createRenderPipeline({
+        this.pipelines[pipeline_types.ACCUMULATE_SCREEN_PIPELINE] = this.device.createRenderPipeline({
+            label:"SCREEN_PIPELINE",
             layout: screen_pipeline_layout,
-            
             vertex: {
                 module: this.device.createShaderModule({
-                code: screen_shader,
+                code: accumulatte_screen_shader,
             }),
             entryPoint: 'vert_main',
             },
 
             fragment: {
                 module: this.device.createShaderModule({
-                code: screen_shader,
+                code: accumulatte_screen_shader,
             }),
             entryPoint: 'frag_main',
             targets: [
                 {
                     format: this.gpuTextureColorFormat,
-                    blend: {
+                    blend: { //front to back blending
                         color: {
                             srcFactor: 'one-minus-dst-alpha',           
                             dstFactor: 'one', 
@@ -506,7 +651,69 @@ export class Renderer {
                             operation: 'add'                 
                         }
                     }
+                },
+                {
+                    format: this.gpuTextureColorFormat,
+                    blend: {//back to front blending
+                        color: {
+                            srcFactor: 'one',           
+                            dstFactor: 'one-minus-src-alpha', 
+                            operation: 'add'                 
+                        },
+                        alpha: {
+                            srcFactor: 'one',                 
+                            dstFactor: 'one-minus-src-alpha',              
+                            operation: 'add'                 
+                        }
+                    }
                 }
+            ]
+            },
+
+            primitive: {
+                topology: "triangle-list"
+            }
+        });
+
+
+
+
+
+        const final_screen_pipeline_layout = this.device.createPipelineLayout({
+            bindGroupLayouts: [this.bindingGroupLayouts[binding_group_types.FINAL_SCREEN_FRONT] as GPUBindGroupLayout]
+        });
+
+        this.pipelines[pipeline_types.FINAL_SCREEN_PIPELINE] = this.device.createRenderPipeline({
+            label:"FINAL_SCREEN_PIPELINE",
+            layout: final_screen_pipeline_layout,
+            vertex: {
+                module: this.device.createShaderModule({
+                code: final_screen_shader,
+            }),
+            entryPoint: 'vert_main',
+            },
+
+            fragment: {
+                module: this.device.createShaderModule({
+                code: final_screen_shader,
+            }),
+            entryPoint: 'frag_main',
+            targets: [
+                {
+                    format: this.gpuTextureColorFormat,
+                    blend: { //front to back blending
+                        color: {
+                            srcFactor: 'one-minus-dst-alpha',           
+                            dstFactor: 'one', 
+                            operation: 'add'                 
+                        },
+                        alpha: {
+                            srcFactor: 'one-minus-dst-alpha',                 
+                            dstFactor: 'one',              
+                            operation: 'add'                 
+                        }
+                    }
+                } 
             ]
             },
 
@@ -522,8 +729,9 @@ export class Renderer {
         this.triangleMesh = new TriangleMesh(this.device);        
 
         this.quadMaterial = new Material();
-        this.standingQuadMaterial = new Material();
-        this.standingQuadMaterialRed = new Material();
+        this.purpleQuadMaterial = new Material();
+        this.blueQuadMaterialRed = new Material();
+        this.orangeQuadMaterial = new Material();
 
         this.cameraViewProjectionBuffer = this.device.createBuffer({
             size: 64 * 2,
@@ -549,8 +757,9 @@ export class Renderer {
         );
 
         await this.quadMaterial.initialize(this.device, "floor",0,this.canvas.width,this.canvas.height,6);
-        await this.standingQuadMaterial.initialize(this.device, "StandingQuad",1,this.canvas.width,this.canvas.height,1);
-        await this.standingQuadMaterialRed.initialize(this.device, "StandingQuadRed",1,this.canvas.width,this.canvas.height,1);
+        await this.purpleQuadMaterial.initialize(this.device, "purple",1,this.canvas.width,this.canvas.height,1);
+        await this.blueQuadMaterialRed.initialize(this.device, "blue",1,this.canvas.width,this.canvas.height,1);
+        await this.orangeQuadMaterial.initialize(this.device, "orange",1,this.canvas.width,this.canvas.height,1);
 
 
         const urls = [
@@ -618,123 +827,184 @@ export class Renderer {
          if (!this.device || !this.depthBuffer1 || !this.depthBuffer2) {
             return;
          }
-        
+
+         
+         //const occlusionResultBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,});
+
+
+         //const occlusionResolveBuffer = this.device.createBuffer({size: 1 * 8,usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,});
+       
+
          let start: number = performance.now();
 
 
         this.prepareScene(renderables, camera);
 
 
-        const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
-        
         let commandEncoder : GPUCommandEncoder = this.device.createCommandEncoder();
 
-
-        
         await this.initDepthValues(renderables,this.depthBufferView1,commandEncoder);
 
+        let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
+            colorAttachments: [{
+                view: this.depthBufferView2,
+                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
+                loadOp: "clear",
+                storeOp: "store",
+            }]
+        });
+
+
+        renderpass.end();
 
 
     for(let i=0; i<2; i++){
+
 
         let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView2 : this.depthBufferView1;
 
         let depthBufferBindingGroup  = (i % 2) === 0 ? this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_1] : this.bindingGroups[binding_group_types.DUEL_PEELING_DEPTH_BUFFER_2];
 
         let renderpass : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-            colorAttachments: [{
+            colorAttachments: [
+            {
                 view: depthBufferResult,
-                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
                 loadOp: "load",
                 storeOp: "store",
             },
             {
-                view: this.back_color_target_texture_view,
-                clearValue: {r: -this.Max_Depth, g: -this.Max_Depth, b: 0.0, a: 0.0},
+                view: this.front_peeled_color_target_texture_view,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
                 loadOp: "clear",
                 storeOp: "store",
-            },]
+            },
+            {
+                view: this.back_peeled_color_target_texture_view,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: "clear",
+                storeOp: "store",
+            },
+           ],
+           occlusionQuerySet: this.occlusionQuerySet,
         });
 
         renderpass.setPipeline(this.pipelines[pipeline_types.DUEL_PEELING_PIPELINE] as GPURenderPipeline);
         renderpass.setBindGroup(2,depthBufferBindingGroup as GPUBindGroup);
 
-        this.drawModel(renderables,renderpass);
-
-
-
         
+        // Begin an occlusion query at index 0
+       // renderpass.beginOcclusionQuery(0);
+        
+        await this.drawModel(renderables,renderpass);
+
+        //renderpass.endOcclusionQuery();
+
+        renderpass.end();
+
+        // commandEncoder.resolveQuerySet(this.occlusionQuerySet, 0, 1, occlusionResolveBuffer, 0);
+        // if (occlusionResultBuffer.mapState === 'unmapped') {
+        //     commandEncoder.copyBufferToBuffer(occlusionResolveBuffer, 0, occlusionResultBuffer, 0, occlusionResultBuffer.size);
+        // }
+
+
         let  renderpass1  = commandEncoder.beginRenderPass({
-            colorAttachments: [{
-                view: finalTextureView,
-                clearValue:{r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-                loadOp: "load",
+            colorAttachments: [
+            {
+                //view: finalTextureView,
+                view:this.front_accumulated_color_target_texture_view,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: i === 0 ? "clear" : "load",
+                storeOp: "store",
+             },
+             {
+                view:this.back_accumulated_color_target_texture_view,
+                clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                loadOp: i === 0 ? "clear" : "load",
                 storeOp: "store",
              }]
          });
 
 
-         renderpass1.setPipeline(this.pipelines[pipeline_types.SCREEN_PIPELINE] as GPURenderPipeline);
-         renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.SCREEN] as GPUBindGroup);
+         renderpass1.setPipeline(this.pipelines[pipeline_types.ACCUMULATE_SCREEN_PIPELINE] as GPURenderPipeline);
+         renderpass1.setBindGroup(0, this.bindingGroups[binding_group_types.ACCUMULATE_SCREEN] as GPUBindGroup);
          renderpass1.draw(6, 1, 0, 0);
          renderpass1.end();
-    }
 
 
 
 
+         //let depthBufferResultTexture :GPUTexture  = (i % 2) === 0 ? this.depthBuffer2 : this.depthBuffer1;
 
-        // //Depth Peeling Loop
-        // const numberOfPeelPassed : number = 3;
-
-        // for(let i=0; i<numberOfPeelPassed; i++)
-        // {
-
-        //     let depthBufferResult :GPUTextureView  = (i % 2) === 0 ? this.depthBufferView1 : this.depthBufferView2;
  
-            
-        //     let renderpass1 : GPURenderPassEncoder = commandEncoder.beginRenderPass({
-        //         colorAttachments: [{
-        //             view: this.back_color_target_texture_view,
-        //             clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
-        //             loadOp: "clear",
-        //             storeOp: "store",
-        //         }],
-        //         depthStencilAttachment: {
-        //             view: depthBufferResult, 
-        //             depthLoadOp: "clear",  
-        //             depthStoreOp: "store",
-                
-        //             depthClearValue: 1.0,
-        //         },
-        //     });
-
-
-        //     await this.drawPeeledRenderPass(renderables,renderpass1);
-
-
-
-           
-        // }
-            
-
-        // //Sky cube is the last layer in finalTextureView layers
-         //await this.drawSky(finalTextureView,commandEncoder);
-
+       
+         //this.device.queue.submit([commandEncoder.finish()]);
         
 
-        // this.device.queue.onSubmittedWorkDone().then(
-        //     () => {
-        //         let end: number = performance.now();
-        //         this.frametime = end - start;
-        //         let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
-        //         if (performanceLabel) {
-        //             performanceLabel.innerText = this.frametime.toString();
-        //         }
-        //     }
-        // );
 
-        this.device.queue.submit([commandEncoder.finish()]);
+
+        
+        //  if (occlusionResultBuffer.mapState === 'unmapped') {
+        //      await occlusionResultBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        //      const results : BigUint64Array = new BigUint64Array(occlusionResultBuffer.getMappedRange()).slice();
+        //      console.log(results[0]);
+ 
+        //      occlusionResultBuffer.unmap();
+ 
+        //  })}
+
+        //commandEncoder = this.device.createCommandEncoder();
+
+    }//loop end
+
+    const finalTextureView : GPUTextureView =  this.context.getCurrentTexture().createView();
+
+
+        //front blend between accumulated front and back textures 
+        for(let i=0; i< 2 ; i++)
+        {
+
+            let accumulatedBindingGroup  = (i % 2) === 0 ? this.bindingGroups[binding_group_types.FINAL_SCREEN_FRONT] : this.bindingGroups[binding_group_types.FINAL_SCREEN_BACK];
+
+
+            let  renderpass1  = commandEncoder.beginRenderPass({
+                colorAttachments: [
+                {
+                    view: finalTextureView,
+                    clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
+                    loadOp: i === 0  ? "clear": "load",
+                    storeOp: "store",
+                 },]
+             });
+    
+    
+             renderpass1.setPipeline(this.pipelines[pipeline_types.FINAL_SCREEN_PIPELINE] as GPURenderPipeline);
+             renderpass1.setBindGroup(0, accumulatedBindingGroup as GPUBindGroup);
+             renderpass1.draw(6, 1, 0, 0);
+             renderpass1.end();
+
+
+
+        }
+
+
+
+        this.drawSky(finalTextureView,commandEncoder);
+
+
+
+        this.device.queue.onSubmittedWorkDone().then(
+            () => {
+                let end: number = performance.now();
+                this.frametime = end - start;
+                let performanceLabel: HTMLElement =  <HTMLElement> document.getElementById("render-time");
+                if (performanceLabel) {
+                    performanceLabel.innerText = this.frametime.toString();
+                }
+            }
+        );
+       
+
+         this.device.queue.submit([commandEncoder.finish()]);
 
     }
 
@@ -747,14 +1017,7 @@ export class Renderer {
                 clearValue: {r: 0.0, g: 0.0, b: 0.0, a: 0.0},
                 loadOp: "load",
                 storeOp: "store",
-            }],
-            depthStencilAttachment: {
-                view: this.depthBufferView2, 
-                depthLoadOp: "clear",  
-                depthStoreOp: "store",
-            
-                depthClearValue: 1.0,
-            },
+            }]
             
         });
 
@@ -777,32 +1040,6 @@ export class Renderer {
 
         var objects_drawn: number = 0;
         
-        //TRINALGE DRAW
-        // renderpass.setVertexBuffer(0, this.triangleMesh.buffer);
-
-       
-        // renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
-       
-
-        // renderpass.draw(
-        //     3, renderables.object_counts[object_types.TRIANGLE]/2, 
-        //     0, objects_drawn
-        // );
-        // objects_drawn += renderables.object_counts[object_types.TRIANGLE]/2;
-
-
-
-
-        // renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
-       
-        // renderpass.draw(
-        //     3, renderables.object_counts[object_types.TRIANGLE]/2, 
-        //     0, objects_drawn
-        // );
-        // objects_drawn += renderables.object_counts[object_types.TRIANGLE]/2;
-
-
-
         //Floor Draw
         renderpass.setVertexBuffer(0, this.quadMesh.buffer);
 
@@ -820,7 +1057,7 @@ export class Renderer {
 
 
 
-        renderpass.setBindGroup(1, this.standingQuadMaterial.bindGroup); 
+        renderpass.setBindGroup(1, this.purpleQuadMaterial.bindGroup); 
 
 
         renderpass.draw(
@@ -838,7 +1075,21 @@ export class Renderer {
 
 
 
-        renderpass.setBindGroup(1, this.standingQuadMaterialRed.bindGroup); 
+        renderpass.setBindGroup(1, this.blueQuadMaterialRed.bindGroup); 
+
+
+        renderpass.draw(
+            6, 1, 
+            0, objects_drawn
+        );
+
+
+        objects_drawn += 1;
+
+
+
+
+        renderpass.setBindGroup(1, this.orangeQuadMaterial.bindGroup); 
 
 
         renderpass.draw(
@@ -855,7 +1106,6 @@ export class Renderer {
 
 
 
-        renderpass.end();
     
 
     }
@@ -875,7 +1125,9 @@ export class Renderer {
 
         renderpass.setPipeline(this.pipelines[pipeline_types.INIT_DUEL_PEELING_PIPELINE] as GPURenderPipeline);
 
-        this.drawModel(renderables,renderpass);
+        await this.drawModel(renderables,renderpass);
+
+        renderpass.end();
     }
     
 }

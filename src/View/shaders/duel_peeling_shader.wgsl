@@ -1,3 +1,6 @@
+const MAX_DEPTH: f32 = 1.0;
+const EPSILON: f32 = 0.00001;
+
 struct TransformData {
     view: mat4x4<f32>,
     projection: mat4x4<f32>,
@@ -19,7 +22,7 @@ struct ObjectData {
 @group(2) @binding(0) var depthBufferTexturePrev: texture_2d<f32>;
 
 
-const MAX_DEPTH: f32 = 1.0;
+
 
 
 
@@ -29,8 +32,9 @@ struct VertexOutputs {
 };
 
 struct FragmentOutputs {
-    @location(0) depthBufferTextureTarget: vec4<f32>,  
-    @location(1) backTextureTarget: vec4<f32>,  
+    @location(0) depthBufferTextureTarget: vec2<f32>,  
+    @location(1) frontTextureTarget: vec4<f32>,  
+    @location(2) backTextureTarget:  vec4<f32> 
 
 };
 
@@ -47,6 +51,8 @@ fn vs_main(
     return output;
 }
 
+
+
 @fragment
 fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<f32>) -> FragmentOutputs {
    
@@ -56,33 +62,35 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
     var outputs: FragmentOutputs;
 
     let fragmentTextureCords = vec2<i32>(fragCoord.xy);  // Convert the fragment coordinates to integer texel coordinates
-    let prevDepthBuffer = textureLoad(depthBufferTexturePrev, fragmentTextureCords, 0);  // Mip level 0
+    let prevDepthBuffer: vec4<f32> = textureLoad(depthBufferTexturePrev, fragmentTextureCords, 0);  // Mip level 0
 
+
+
+    // if(prevDepthBuffer.x == -MAX_DEPTH && prevDepthBuffer.y == -MAX_DEPTH)
+    // {
+    //     discard;
+    // }
 
     let nearestDepth = -prevDepthBuffer.x;
 	let farthestDepth = prevDepthBuffer.y;
 
 
 
-    if (fragCoord.z < nearestDepth || fragCoord.z > farthestDepth) {
+    if (fragCoord.z < nearestDepth  || fragCoord.z > farthestDepth) {
 		// Skip this depth in the peeling algorithm, it was already peeled.
-		outputs.depthBufferTextureTarget =  vec4(-MAX_DEPTH,-MAX_DEPTH,0,0);
-            outputs.backTextureTarget = vec4(1.0,0.0,0.0,1.0);
-
+		outputs.depthBufferTextureTarget =  vec2(-MAX_DEPTH,-MAX_DEPTH);
         return outputs;
 	}
 
-	if (fragCoord.z > nearestDepth && fragCoord.z < farthestDepth) {
+	if (fragCoord.z > nearestDepth  && fragCoord.z < farthestDepth)  {
 		// This fragment needs to be peeled, GL_MAX will change the new range and on next pass we will color this layer
-		outputs.depthBufferTextureTarget =  vec4(-fragCoord.z,fragCoord.z,0,0);
-        outputs.backTextureTarget = vec4(0.0,0.0,0.0,1.0);
+		outputs.depthBufferTextureTarget =  vec2(-fragCoord.z,fragCoord.z);
         return outputs;
 	}
 
 
 
     // If we made it here, this fragment is on the peeled layer from last pass, shade it (get its color);    
-    
     if(applyAlpha == 1u)
     {
         color.a = 0.5; 
@@ -90,19 +98,26 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>,@location(0) TexCoord : vec2<
 
     color = vec4(color.rgb * color.a,color.a); 
 
+    
    // Make sure it is not peeled any farther
-	outputs.depthBufferTextureTarget =  vec4(-MAX_DEPTH,-MAX_DEPTH,0,0);
+	outputs.depthBufferTextureTarget =  vec2(-MAX_DEPTH,-MAX_DEPTH);
 
 
-    outputs.backTextureTarget = vec4(0.0,1.0,0.0,1.0);
 
-    // if (fragCoord.z == nearestDepth) {
-	// 	outputs.backTextureTarget = color;
-	// } 
-    // else
-    // {
-    //     outputs.backTextureTarget = vec4(0.0,0.0,0.0,1.0);
-    // }
+    if (abs(fragCoord.z - nearestDepth) < EPSILON) {
+		outputs.frontTextureTarget = color;
+
+         // Ignored due to blending setup, we must return somthing so it won't ovveride the correct already found nearest fragment.
+        outputs.backTextureTarget =  vec4<f32>(0.0, 0.0, 0.0, 0.0); 
+	} 
+    else 
+    {
+        outputs.backTextureTarget = color;
+
+        // Ignored due to blending setup, we must return somthing so it won't ovveride the correct already found nearest fragment.
+        outputs.frontTextureTarget =  vec4<f32>(0.0, 0.0, 0.0, 0.0); 
+    }
+    
 
         
     return outputs;
